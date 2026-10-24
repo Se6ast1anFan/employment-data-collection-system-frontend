@@ -1,0 +1,36 @@
+{
+  "name": "employment-data-collection-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:mock": "vite --mode mock",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "type-check": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "build": "npm run type-check && vite build",
+    "build:mock": "npm run type-check && vite build --mode mock"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "element-plus": "^2.11.8",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.22",
+    "vue-router": "^4.6.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/test-utils": "^2.4.6",
+    "@types/node": "^24.10.0",
+    "jsdom": "^27.0.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.12",
+    "vitest": "^5.0.5",
+    "vue-tsc": "^3.1.1"
+  }
+}
