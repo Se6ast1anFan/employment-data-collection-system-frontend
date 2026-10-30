@@ -48,7 +48,7 @@ onMounted(load)
       </el-descriptions>
       <div class="form-actions">
         <el-button v-if="!status?.status || ['DRAFT','RETURNED'].includes(status.status)" type="primary" @click="router.push('/enterprise/profile')">{{ status?.status === 'RETURNED' ? '修改并重新提交' : '填写备案资料' }}</el-button>
-        <el-button v-if="status?.canReport" type="success" plain @click="router.push('/enterprise/report/new')">进入数据填报（第 3 周开发中）</el-button>
+        <el-button v-if="status?.canReport" type="success" plain @click="router.push('/enterprise/report/new')">进入数据填报</el-button>
       </div>
     </el-card>
     <el-card shadow="never" class="business-card">

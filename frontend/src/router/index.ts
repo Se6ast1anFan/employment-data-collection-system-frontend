@@ -51,22 +51,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/EnterpriseFilingView.vue'),
     meta: { title: '备案状态', requiresAuth: true, roles: ['ENTERPRISE'] },
   },
-  page('/enterprise/report/new', 'ENTERPRISE', '就业数据填报', '填写建档期、调查期就业人数及减少原因。', [
-    { label: '保存草稿', week: 3 },
-    { label: '提交报表', week: 3 },
-  ]),
-  page('/enterprise/report/history', 'ENTERPRISE', '历史数据查询', '仅浏览本企业以往调查期的数据状态，不提供导出。', [
-    { label: '查询', week: 3 },
-    { label: '查看详情', week: 3 },
-  ]),
+  { path: '/enterprise/report/new', component: () => import('@/views/EnterpriseReportsView.vue'), meta: { title: '就业数据填报', requiresAuth: true, roles: ['ENTERPRISE'] } },
+  { path: '/enterprise/report/history', component: () => import('@/views/EnterpriseReportsView.vue'), meta: { title: '历史数据查询', requiresAuth: true, roles: ['ENTERPRISE'] } },
   page('/enterprise/notices', 'ENTERPRISE', '通知浏览', '查看有权限浏览的上级通知。', [
     { label: '查看通知', week: 6 },
   ]),
-  page('/city/reports', 'CITY', '辖区报表审核', '查看辖区企业报表并完成市级审核。', [
-    { label: '查看', week: 4 },
-    { label: '通过', week: 4 },
-    { label: '退回', week: 4 },
-  ]),
+  { path: '/city/reports', component: () => import('@/views/ReviewReportsView.vue'), meta: { title: '辖区报表审核', requiresAuth: true, roles: ['CITY'] } },
   page('/city/notices', 'CITY', '通知浏览', '按组织层级查看有权限浏览的上级通知。', [
     { label: '查看通知', week: 6 },
   ]),
@@ -80,19 +70,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ProvinceFilingsView.vue'),
     meta: { title: '企业备案', requiresAuth: true, roles: ['PROVINCE'] },
   },
-  page('/province/periods', 'PROVINCE', '调查期管理', '维护调查期及开放时间。', [
-    { label: '新增', week: 3 },
-    { label: '修改', week: 3 },
-    { label: '开放', week: 3 },
-    { label: '关闭', week: 3 },
-  ]),
-  page('/province/reports', 'PROVINCE', '报表管理', '处理省级报表审核、修订和历史数据。', [
-    { label: '查看', week: 4 },
-    { label: '确认', week: 4 },
-    { label: '退回', week: 4 },
-    { label: '修订', week: 5 },
-    { label: '删除历史记录', week: 5 },
-  ]),
+  { path: '/province/periods', component: () => import('@/views/ProvincePeriodsView.vue'), meta: { title: '调查期管理', requiresAuth: true, roles: ['PROVINCE'] } },
+  { path: '/province/reports', component: () => import('@/views/ReviewReportsView.vue'), meta: { title: '省级报表审核', requiresAuth: true, roles: ['PROVINCE'] } },
   page('/province/summary', 'PROVINCE', '数据汇总', '按调查期查看汇总指标和导出结果。', [
     { label: '统计', week: 5 },
     { label: '导出', week: 5 },

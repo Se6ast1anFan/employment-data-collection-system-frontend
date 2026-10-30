@@ -1,6 +1,14 @@
-# 云南省企业就业失业数据采集系统前端
+# 企业就业失业数据采集系统前端
 
-本目录是成员 B 的第一、二周前端交付。第一周公共接口以 `../docs/w1-api-contract.openapi.json` 为依据，第二周备案接口以 `../docs/w2-api-contract.openapi.json` 0.2.0 为唯一依据。
+第四周已新增市级/省级报表审核和企业退回重报，接口依据 `../docs/w4-api-contract.openapi.json` 0.4.0。详情见 `docs/w4-frontend-acceptance.md`。运行命令不变：`npm run dev:mock` 为本地演示，`npm run dev` 为真实接口；第四周真实写入需成员 A 部署对应服务后验收。
+
+市级与省级在各自报表菜单筛选待办并查看提交快照，通过需确认，退回备注选填。任一级退回后企业均重新提交至市级；省级审核通过只表示审核结束，不表示已汇总或已上报部委。
+
+第三周新增省级调查期管理、企业填报与历史查询，契约为 `../docs/w3-api-contract.openapi.json` 0.3.0。运行 `npm ci` 后用 `npm run dev` 连接真实后端，或 `npm run dev:mock` 演示。第三周验收记录见 `docs/w3-frontend-acceptance.md`。
+
+企业先备案通过，再选择开放期次保存、提交。其他原因没有内容时填“无”；减员时类型、主要原因和说明必填，次要与第三原因和说明成对填写。首次成功提交锁定后续基准人数；历史只读且无导出。省级四个时间均按北京时间录入并转 UTC。市省审核第四周开放。
+
+本目录是第一、二周前端交付。第一周公共接口以 `../docs/w1-api-contract.openapi.json` 为依据，第二周备案接口以 `../docs/w2-api-contract.openapi.json` 0.2.0 为唯一依据。
 
 第一周公共接口：
 
@@ -46,9 +54,9 @@ npm run dev:mock
 cd "C:\Users\fanmi\Desktop\卓越工程综合训练\project\frontend"
 ```
 
-## 连接成员 A 的真实后端
+## 连接真实后端
 
-成员 A 提供的第一周联调服务器是 `http://47.93.90.158:8080/api/v1`。项目的 Vite 开发代理已指向该服务器。在前端目录执行：
+提供的第一周联调服务器是 `http://47.93.90.158:8080/api/v1`。项目的 Vite 开发代理已指向该服务器。在前端目录执行：
 
 ```powershell
 npm run dev

@@ -16,7 +16,7 @@ const menuCount = computed(() => role.value ? getMenusForRole(role.value).length
       <div>
         <p class="eyebrow">{{ roleLabel }}</p>
         <h1>欢迎，{{ auth.user?.displayName }}</h1>
-        <p>{{ auth.user?.orgName }} · 第二周企业备案功能已接入</p>
+        <p>{{ auth.user?.orgName }} · 调查期管理与企业填报已接入</p>
       </div>
     </div>
     <el-row :gutter="18">
@@ -31,9 +31,9 @@ const menuCount = computed(() => role.value ? getMenusForRole(role.value).length
       </el-col>
     </el-row>
     <el-card shadow="never" class="week-one-card">
-      <template #header><strong>第二周范围说明</strong></template>
-      <el-alert title="企业备案已开放，填报及报表审核仍按后续周次开发" type="info" :closable="false" show-icon />
-      <p>省级可创建企业账号并审核备案，企业可保存、提交和查看备案历史；其他模块仍不会产生业务数据。</p>
+      <template #header><strong>第四周范围说明</strong></template>
+      <el-alert title="市省两级报表审核与企业退回重报已接入" type="info" :closable="false" show-icon />
+      <p>企业报表经市级、省级依次审核，任一级退回后重报都须重新经过市审。省级通过表示审核完成。真实运行需部署第四周接口。</p>
     </el-card>
   </section>
 </template>

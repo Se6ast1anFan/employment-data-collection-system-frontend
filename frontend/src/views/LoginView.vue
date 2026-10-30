@@ -59,8 +59,8 @@ async function submit() {
   <main class="login-page">
     <section class="login-intro">
       <p class="eyebrow">云南省企业就业失业数据采集系统</p>
-      <h1>第二周企业备案</h1>
-      <p>在第一周登录与权限框架上，完成企业建号、资料提交、省级审核和备案查询。</p>
+      <h1>第四周市省两级审核</h1>
+      <p>企业填报后经市级、省级依次审核；退回后修改重报，保留提交快照与审核记录。</p>
       <ul>
         <li>企业、市级、省级三类角色独立菜单</li>
         <li>企业备案版本、退回理由与审核留痕</li>
