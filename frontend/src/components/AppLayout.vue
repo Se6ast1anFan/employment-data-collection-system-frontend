@@ -28,7 +28,7 @@ function logout() {
         <div class="brand-mark">云</div>
         <div v-if="!collapsed" class="brand-text">
           <strong>就业数据采集</strong>
-          <span>第四周市省两级审核</span>
+          <span>第五周省级数据管理</span>
         </div>
       </div>
       <el-menu :default-active="route.path" router :collapse="collapsed" class="role-menu">

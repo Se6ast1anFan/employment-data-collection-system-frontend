@@ -72,20 +72,14 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/province/periods', component: () => import('@/views/ProvincePeriodsView.vue'), meta: { title: '调查期管理', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/reports', component: () => import('@/views/ReviewReportsView.vue'), meta: { title: '省级报表审核', requiresAuth: true, roles: ['PROVINCE'] } },
-  page('/province/summary', 'PROVINCE', '数据汇总', '按调查期查看汇总指标和导出结果。', [
-    { label: '统计', week: 5 },
-    { label: '导出', week: 5 },
-  ]),
+  { path: '/province/summary', component: () => import('@/views/ProvinceSummaryView.vue'), meta: { title: '数据汇总', requiresAuth: true, roles: ['PROVINCE'] } },
+  { path: '/province/data/reports/:reportId', component: () => import('@/views/ProvinceCorrectionView.vue'), meta: { title: '修订与追溯', requiresAuth: true, roles: ['PROVINCE'] } },
   page('/province/analysis', 'PROVINCE', '图表分析', '展示取样、两期对比和连续趋势分析。', [
     { label: '取样分析', week: 6 },
     { label: '对比分析', week: 6 },
     { label: '趋势分析', week: 6 },
   ]),
-  page('/province/accounts', 'PROVINCE', '全省账号查询', '按原始需求中的查询条件检索并导出账号数据。', [
-    { label: '查询', week: 5 },
-    { label: '清除条件', week: 5 },
-    { label: '导出', week: 5 },
-  ]),
+  { path: '/province/accounts', component: () => import('@/views/ProvinceAccountsView.vue'), meta: { title: '全省账号查询', requiresAuth: true, roles: ['PROVINCE'] } },
   page('/province/notices', 'PROVINCE', '通知管理', '由省级用户发布、修改和删除通知。', [
     { label: '新建', week: 6 },
     { label: '发布', week: 6 },

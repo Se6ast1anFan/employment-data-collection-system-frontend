@@ -31,9 +31,9 @@ const menuCount = computed(() => role.value ? getMenusForRole(role.value).length
       </el-col>
     </el-row>
     <el-card shadow="never" class="week-one-card">
-      <template #header><strong>第四周范围说明</strong></template>
-      <el-alert title="市省两级报表审核与企业退回重报已接入" type="info" :closable="false" show-icon />
-      <p>企业报表经市级、省级依次审核，任一级退回后重报都须重新经过市审。省级通过表示审核完成。真实运行需部署第四周接口。</p>
+      <template #header><strong>第五周范围说明</strong></template>
+      <el-alert title="省级修订、作废、按期汇总、账号查询与三类导出已接入" type="info" :closable="false" show-icon />
+      <p>本周使用已省审通过且未作废的有效数据。原值、修订与作废记录保留；省级通过不表示已报部委。真实运行需部署第五周接口及 V7。</p>
     </el-card>
   </section>
 </template>

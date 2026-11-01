@@ -119,3 +119,5 @@ export const roleLabels: Record<RoleCode, string> = {
   CITY: '市级用户',
   PROVINCE: '省级用户',
 }
+
+export function managementMockAccounts() { return accounts.map(({username,user})=>({username,user})) }

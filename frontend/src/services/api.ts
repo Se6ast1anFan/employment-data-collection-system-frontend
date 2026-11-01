@@ -72,12 +72,12 @@ export async function request<T>(
 }
 
 function parseFileName(header: string | null): string {
-  if (!header) return '已备案企业.xlsx'
+  if (!header) return '导出数据.xlsx'
   const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
   if (utf8) {
     try { return decodeURIComponent(utf8) } catch { return utf8 }
   }
-  return header.match(/filename="?([^";]+)"?/i)?.[1] || '已备案企业.xlsx'
+  return header.match(/filename="?([^";]+)"?/i)?.[1] || '导出数据.xlsx'
 }
 
 export async function download(
@@ -98,7 +98,7 @@ export async function download(
   } catch {
     throw new ApiError(0, '无法连接服务，请确认后端已启动或切换到 Mock 模式')
   }
-  if (!response.ok) {
+  if (!response.ok || response.headers.get('Content-Type')?.includes('json')) {
     const payload: unknown = await response.json().catch(() => null)
     throw toApiError(
       response.status,

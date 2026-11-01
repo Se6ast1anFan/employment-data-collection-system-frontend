@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { mockAuthProvider } from '@/mock/auth'
 import { mockFilingProvider } from '@/mock/filing'
@@ -15,7 +15,9 @@ const profile: EnterpriseProfileFields = {
 }
 
 describe('第二周备案 Mock 闭环', () => {
+  afterEach(() => vi.useRealTimers())
   it('完成建号、提交、退回、重提、通过、筛选和 Excel 导出', async () => {
+    vi.useFakeTimers({toFake:['Date']}); vi.setSystemTime(new Date('2026-10-24T08:00:00Z'))
     const provinceLogin = await mockAuthProvider.login({ username: 'demo_province', password: 'Demo@123456' })
     const provinceToken = provinceLogin.data.accessToken
     const account = await mockFilingProvider.createEnterpriseAccount({

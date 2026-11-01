@@ -332,3 +332,5 @@ export const mockFilingProvider: FilingProvider = {
     return { blob: createXlsxBlob([headers, ...rows]), fileName: '已备案企业.xlsx' }
   },
 }
+
+export const managementMockFilings = { records, options }
