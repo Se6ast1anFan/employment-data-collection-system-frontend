@@ -31,9 +31,9 @@ const menuCount = computed(() => role.value ? getMenusForRole(role.value).length
       </el-col>
     </el-row>
     <el-card shadow="never" class="week-one-card">
-      <template #header><strong>第五周范围说明</strong></template>
-      <el-alert title="省级修订、作废、按期汇总、账号查询与三类导出已接入" type="info" :closable="false" show-icon />
-      <p>本周使用已省审通过且未作废的有效数据。原值、修订与作废记录保留；省级通过不表示已报部委。真实运行需部署第五周接口及 V7。</p>
+      <template #header><strong>第六周范围说明</strong></template>
+      <el-alert title="各市占比、两期对比、连续趋势和通知页面已接入" type="info" :closable="false" show-icon />
+      <p>省级可查询有效报表分析，并发布、修改、删除本省通知；企业和市级可只读浏览所属省通知。真实服务可用性以联调记录为准。</p>
     </el-card>
   </section>
 </template>

@@ -53,13 +53,9 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/enterprise/report/new', component: () => import('@/views/EnterpriseReportsView.vue'), meta: { title: '就业数据填报', requiresAuth: true, roles: ['ENTERPRISE'] } },
   { path: '/enterprise/report/history', component: () => import('@/views/EnterpriseReportsView.vue'), meta: { title: '历史数据查询', requiresAuth: true, roles: ['ENTERPRISE'] } },
-  page('/enterprise/notices', 'ENTERPRISE', '通知浏览', '查看有权限浏览的上级通知。', [
-    { label: '查看通知', week: 6 },
-  ]),
+  { path: '/enterprise/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知浏览', requiresAuth: true, roles: ['ENTERPRISE'] } },
   { path: '/city/reports', component: () => import('@/views/ReviewReportsView.vue'), meta: { title: '辖区报表审核', requiresAuth: true, roles: ['CITY'] } },
-  page('/city/notices', 'CITY', '通知浏览', '按组织层级查看有权限浏览的上级通知。', [
-    { label: '查看通知', week: 6 },
-  ]),
+  { path: '/city/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知浏览', requiresAuth: true, roles: ['CITY'] } },
   {
     path: '/province/enterprise-accounts/new',
     component: () => import('@/views/ProvinceAccountCreateView.vue'),
@@ -74,18 +70,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/province/reports', component: () => import('@/views/ReviewReportsView.vue'), meta: { title: '省级报表审核', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/summary', component: () => import('@/views/ProvinceSummaryView.vue'), meta: { title: '数据汇总', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/data/reports/:reportId', component: () => import('@/views/ProvinceCorrectionView.vue'), meta: { title: '修订与追溯', requiresAuth: true, roles: ['PROVINCE'] } },
-  page('/province/analysis', 'PROVINCE', '图表分析', '展示取样、两期对比和连续趋势分析。', [
-    { label: '取样分析', week: 6 },
-    { label: '对比分析', week: 6 },
-    { label: '趋势分析', week: 6 },
-  ]),
+  { path: '/province/analysis', component: () => import('@/views/ProvinceAnalysisView.vue'), meta: { title: '就业数据分析', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/accounts', component: () => import('@/views/ProvinceAccountsView.vue'), meta: { title: '全省账号查询', requiresAuth: true, roles: ['PROVINCE'] } },
-  page('/province/notices', 'PROVINCE', '通知管理', '由省级用户发布、修改和删除通知。', [
-    { label: '新建', week: 6 },
-    { label: '发布', week: 6 },
-    { label: '修改', week: 6 },
-    { label: '删除', week: 6 },
-  ]),
+  { path: '/province/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知管理', requiresAuth: true, roles: ['PROVINCE'] } },
   page('/province/users', 'PROVINCE', '用户管理', '管理省级、市级和企业账号及角色分配。', [
     { label: '新增', week: 7 },
     { label: '修改', week: 7 },

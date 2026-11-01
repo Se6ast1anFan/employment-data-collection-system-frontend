@@ -18,11 +18,16 @@ const children: Record<string, RegionItem[]> = {
   DEMO_D: [],
 }
 
-export function getMockRegionInfo(code: string): RegionInfo | undefined {
-  const index = regions.findIndex((item) => item.code === code)
-  if (index < 0) return undefined
-  const item = regions[index]
-  return { code: item.code, name: item.name, path: regions.slice(0, index + 1) }
+const regionPaths = new Map<string,RegionInfo>(regions.map((item,index)=>[item.code,{code:item.code,name:item.name,path:regions.slice(0,index+1)}]))
+export function getMockRegionInfo(code:string):RegionInfo|undefined { return regionPaths.get(code) }
+// 用于本地测试注入匿名地区树；默认演示数据保持原有单链。
+export function registerMockRegionPath(path:RegionItem[]) {
+  path.forEach((item,index)=>{
+    regionPaths.set(item.code,{code:item.code,name:item.name,path:path.slice(0,index+1)})
+    const parent=path[index-1]
+    if(parent){const list=children[parent.code]??[];if(!list.some(r=>r.code===item.code))list.push(item);children[parent.code]=list}
+    children[item.code]??=[]
+  })
 }
 
 export const mockSystemProvider = {
