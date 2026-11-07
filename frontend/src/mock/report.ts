@@ -2,8 +2,11 @@ import type { ReviewProvider, ReviewLevel } from '@/services/review'
 import type { ReviewDetail, ReviewEvent, ReviewFilters } from '@/types/review'
 import type { ReportProvider } from '@/services/report'
 import type { SurveyPeriod, ReportView, ReportHistory, ReportForm, ReportOptions, EnterprisePeriod } from '@/types/report'
+import { mockCorrectionDetails } from '@/mock/management'
+import { orderedPeriods } from '@/utils/week6'
 import { getMockUserForToken } from '@/mock/auth'
-import { mockFilingProvider } from '@/mock/filing'
+import { mockCityOrgId } from '@/mock/system'
+import { managementMockFilings, mockFilingProvider } from '@/mock/filing'
 import { ApiError } from '@/services/api'
 import { validatePeriod, validateReport, normalizeReport } from '@/utils/report'
 const copy = <T>(x:T):T => JSON.parse(JSON.stringify(x))
@@ -21,19 +24,111 @@ const owners=new Map<string,{orgId:string;name:string;cityId:string;provinceId:s
 const reports=new Map<string,ReportView>(); const histories=new Map<string,ReportHistory>(); const baselines=new Map<string,number>()
 function period(c:string) { return periods.find(p=>p.code===c) ?? fail(404,'调查期不存在') }
 function fresh(p:SurveyPeriod):SurveyPeriod { return {...p,windowStatus:p.legacy?'UNAVAILABLE':Date.now()<Date.parse(p.openAt!)?'NOT_OPEN':Date.now()>=Date.parse(p.closeAt!)?'CLOSED':'OPEN'} }
-async function view(c:string,t:string):Promise<ReportView> { const u=user(t,'ENTERPRISE');const p=fresh(period(c));const key=u.orgId+':'+c;const existing=reports.get(key);const eligible=(await mockFilingProvider.getFiling(t)).data.canReport;const blocked=p.legacy?'LEGACY_PERIOD':existing?.status!=null && ['SUBMITTED_CITY','SUBMITTED_PROVINCE','APPROVED_PROVINCE'].includes(existing.status)?'ALREADY_SUBMITTED':!eligible?'FILING_NOT_APPROVED':existing?.status?.startsWith('RETURNED_')?null:p.windowStatus==='NOT_OPEN'?'WINDOW_NOT_OPEN':p.windowStatus==='CLOSED'?'WINDOW_CLOSED':null;return {...(existing??{reportId:null,periodCode:c,status:null,currentVersion:0,submissionVersion:0,form:null,updatedAt:null,submittedAt:null,latestReturn:null}),filingEligible:eligible,windowStatus:p.windowStatus,canWrite:!blocked,blockedReason:blocked,baselineLocked:baselines.has(u.orgId),lockedBaselineEmploymentCount:baselines.get(u.orgId)??null} }
-async function writable(c:string,v:number,t:string) { const x=await view(c,t);if(!x.canWrite) return fail(x.blockedReason==='FILING_NOT_APPROVED'?403:409,'当前不可填报：'+x.blockedReason);if(x.currentVersion!==v) return fail(409,'版本已变化，请刷新');return x }
-export const mockReportProvider:ReportProvider={
+async function view(c: string, t: string, rolling: boolean): Promise<ReportView> {
+ const u = user(t, 'ENTERPRISE')
+ const p = fresh(period(c))
+ const existing = reports.get(u.orgId + ':' + c)
+ const eligible = (await mockFilingProvider.getFiling(t)).data.canReport
+ let blocked: ReportView['blockedReason'] = null
+ if (p.legacy) blocked = 'LEGACY_PERIOD'
+ else if (existing?.voided || (existing?.status && ['SUBMITTED_CITY', 'SUBMITTED_PROVINCE', 'APPROVED_PROVINCE'].includes(existing.status))) blocked = 'ALREADY_SUBMITTED'
+ else if (!eligible) blocked = 'FILING_NOT_APPROVED'
+ else if (!existing?.status?.startsWith('RETURNED_')) {
+   if (p.windowStatus === 'NOT_OPEN') blocked = 'WINDOW_NOT_OPEN'
+   if (p.windowStatus === 'CLOSED') blocked = 'WINDOW_CLOSED'
+ }
+ const base: ReportView = {
+   ...(existing ?? { reportId: null, periodCode: c, status: null, currentVersion: 0, submissionVersion: 0, form: null, updatedAt: null, submittedAt: null, latestReturn: null }),
+   filingEligible: eligible, windowStatus: p.windowStatus, canWrite: !blocked, blockedReason: blocked,
+   baselineLocked: baselines.has(u.orgId), lockedBaselineEmploymentCount: baselines.get(u.orgId) ?? null,
+ }
+ if (!rolling) return base
+ const ordered = orderedPeriods(periods)
+ const earlier = ordered.slice(0, ordered.findIndex(item => item.code === c))
+   .map(item => reports.get(u.orgId + ':' + item.code)).filter(r => r && r.submissionVersion > 0 && !r.voided)
+ const previous = earlier.at(-1)
+ const frozen = base.submissionVersion > 0
+ const computed = frozen ? base.form?.baselineEmploymentCount ?? null
+   : previous ? mockCorrectionDetails.get(previous.reportId!)?.effectiveForm.periodEmploymentCount ?? histories.get(u.orgId + ':' + previous.periodCode)?.snapshots[0]?.form.periodEmploymentCount ?? null
+   : base.form?.periodEmploymentCount ?? null
+ return {
+   ...base,
+   baselineEditable: false, baselineLocked: frozen, lockedBaselineEmploymentCount: frozen ? computed : null,
+   baselineSourcePeriodCode: frozen ? base.baselineSourcePeriodCode ?? c : previous?.periodCode ?? c,
+   baselineSourceReportId: frozen ? base.baselineSourceReportId ?? null : previous?.reportId ?? null,
+   baselineSourceKind: frozen ? base.baselineSourceKind ?? 'LEGACY_MIGRATED' : previous ? 'PREVIOUS_SUBMISSION' : 'FIRST_SUBMISSION',
+   computedBaselineEmploymentCount: computed,
+   form: base.form && { ...base.form, baselineEmploymentCount: computed },
+ }
+}
+async function writable(c:string,v:number,t:string,rolling: boolean) { const x=await view(c,t,rolling);if(!x.canWrite) return fail(x.blockedReason==='FILING_NOT_APPROVED'?403:409,'当前不可填报：'+x.blockedReason);if(x.currentVersion!==v) return fail(409,'版本已变化，请刷新');return x }
+function makeMockReportProvider(rolling: boolean): ReportProvider {
+return {
   async periods(t){user(t,'PROVINCE');return ok({items:periods.map(fresh),total:periods.length})},
   async create(b,t){user(t,'PROVINCE');const e=validatePeriod(b);if(Object.keys(e).length) return fail(400,'请修改字段',e);if(periods.some(p=>p.code===b.code)) return fail(409,'期次代码重复');const p:SurveyPeriod={...b,currentVersion:1,legacy:false,windowStatus:'NOT_OPEN'};periods.push(p);return ok(fresh(p))},
   async update(c,b,t){user(t,'PROVINCE');const p=period(c);if(p.legacy||Date.now()>=Date.parse(p.openAt!)||[...reports.values()].some(r=>r.periodCode===c)||b.expectedVersion!==p.currentVersion)return fail(409,'期次已开放、已有报表或版本过期');const e=validatePeriod({...b,code:c,demo:p.demo});if(Object.keys(e).length)return fail(400,'时间或字段错误',e);const {expectedVersion,...fields}=b;Object.assign(p,fields,{currentVersion:expectedVersion+1});return ok(fresh(p))},
-  async enterprisePeriods(t){user(t,'ENTERPRISE');const items:EnterprisePeriod[]=[];for(const p of periods){const v=await view(p.code,t);items.push({...fresh(p),filingEligible:v.filingEligible,canWrite:v.canWrite,blockedReason:v.blockedReason})}return ok({items})},
-  async options(t){user(t,'ENTERPRISE');return ok(options)}, async get(c,t){return ok(await view(c,t))},
-  async save(c,b,t){const u=user(t,'ENTERPRISE');const v=await writable(c,b.expectedVersion,t);const {expectedVersion,...form}=b;const f=normalizeReport(form);const e=validateReport(f,options,false,v.lockedBaselineEmploymentCount);if(Object.keys(e).length)return fail(400,'字段有误',e);const next:ReportView={...v,reportId:v.reportId??String(nextId++),status:v.status?.startsWith('RETURNED_')?v.status:'DRAFT',currentVersion:expectedVersion+1,form:f,updatedAt:iso(0)};owners.set(next.reportId!,{orgId:u.orgId,name:u.orgName,cityId:owners.get(next.reportId!)?.cityId??'201',provinceId:'100'});reports.set(u.orgId+':'+c,copy(next));return ok(next)},
-  async submit(c,version,t){const u=user(t,'ENTERPRISE');const v=await writable(c,version,t);if(!v.form)return fail(400,'请先保存草稿');const e=validateReport(v.form,options,true,v.lockedBaselineEmploymentCount);if(Object.keys(e).length)return fail(400,'提交字段不完整',e);v.status='SUBMITTED_CITY';v.currentVersion++;v.submissionVersion++;v.latestReturn=null;v.submittedAt=iso(0);baselines.set(u.orgId,v.form.baselineEmploymentCount!);reports.set(u.orgId+':'+c,copy(v));const filing=(await mockFilingProvider.getFiling(t)).data;const prior=histories.get(u.orgId+':'+c);histories.set(u.orgId+':'+c,{reportId:v.reportId!,periodCode:c,status:'SUBMITTED_CITY',snapshots:[{submissionVersion:v.submissionVersion,form:copy(v.form),submittedAt:v.submittedAt,submittedBy:u.id,result:'SUBMITTED_CITY',filingId:filing.filingId,filingVersion:filing.currentVersion},...(prior?.snapshots??[])],reviewEvents:prior?.reviewEvents??[]});return ok({reportId:v.reportId!,periodCode:c,status:'SUBMITTED_CITY' as const,currentVersion:v.currentVersion,submissionVersion:v.submissionVersion,submittedAt:v.submittedAt})},
+  async enterprisePeriods(t){user(t,'ENTERPRISE');const items:EnterprisePeriod[]=[];for(const p of periods){const v=await view(p.code,t,rolling);items.push({...fresh(p),filingEligible:v.filingEligible,canWrite:v.canWrite,blockedReason:v.blockedReason})}return ok({items})},
+  async options(t){user(t,'ENTERPRISE');return ok(options)}, async get(c,t){return ok(await view(c,t,rolling))},
+  async save(c, body, token) {
+    const u = user(token, 'ENTERPRISE')
+    const current = await writable(c, body.expectedVersion, token, rolling)
+    const { expectedVersion, ...form } = body
+    const baseline = current.baselineSourceKind === 'FIRST_SUBMISSION' && current.submissionVersion === 0
+      ? form.periodEmploymentCount : current.computedBaselineEmploymentCount ?? null
+    const fields = normalizeReport(rolling ? { ...form, baselineEmploymentCount: baseline } : form)
+    const errors = validateReport(fields, options, false, current.lockedBaselineEmploymentCount)
+    if (rolling && fields.periodEmploymentCount === null) errors.periodEmploymentCount = '必填'
+    if (rolling && form.baselineEmploymentCount != null && form.baselineEmploymentCount !== baseline) errors.baselineEmploymentCount = '与服务端计算值不一致'
+    if (Object.keys(errors).length) return fail(400, '字段有误', errors)
+    const reportId = current.reportId ?? String(nextId++)
+    const next: ReportView = {
+      ...current, reportId, status: current.status?.startsWith('RETURNED_') ? current.status : 'DRAFT',
+      currentVersion: expectedVersion + 1, form: fields, updatedAt: iso(0),
+      ...(rolling ? { computedBaselineEmploymentCount: baseline } : {}),
+    }
+    const regionCode = managementMockFilings.records.get(u.orgId)?.regionCode ?? 'DEMO_D'
+    const cityId = owners.get(reportId)?.cityId ?? mockCityOrgId(regionCode) ?? '201'
+    owners.set(reportId, { orgId: u.orgId, name: u.orgName, cityId, provinceId: '100' })
+    reports.set(u.orgId + ':' + c, copy(next))
+    return ok(next)
+  },
+  async submit(c, version, token) {
+    const u = user(token, 'ENTERPRISE')
+    const filing = (await mockFilingProvider.getFiling(token)).data
+    const current = await writable(c, version, token, rolling)
+    if (!current.form || !current.reportId) return fail(400, '请先保存草稿')
+    const form = rolling ? normalizeReport(current.form) : current.form
+    const errors = validateReport(form, options, true, current.lockedBaselineEmploymentCount)
+    if (Object.keys(errors).length) return fail(400, '提交字段不完整', errors)
+    const key = u.orgId + ':' + c
+    const submittedAt = iso(0)
+    const submissionVersion = current.submissionVersion + 1
+    const currentVersion = current.currentVersion + 1
+    const source = rolling ? {
+      baselineSourcePeriodCode: current.baselineSourcePeriodCode,
+      baselineSourceReportId: current.baselineSourceReportId,
+      baselineEmploymentCount: form.baselineEmploymentCount!,
+    } : {}
+    const status = 'SUBMITTED_CITY' as const
+    const prior = histories.get(key)
+    if (!rolling) baselines.set(u.orgId, form.baselineEmploymentCount!)
+    reports.set(key, copy({ ...current, form, status, submissionVersion, currentVersion, submittedAt, updatedAt: submittedAt, latestReturn: null }))
+    histories.set(key, {
+      reportId: current.reportId, periodCode: c, status,
+      snapshots: [{
+        submissionVersion, form: copy(form), submittedAt, submittedBy: u.id, result: status,
+        filingId: filing.filingId, filingVersion: filing.currentVersion, ...source,
+      }, ...(prior?.snapshots ?? [])],
+      reviewEvents: prior?.reviewEvents ?? [],
+    })
+    return ok({ reportId: current.reportId, periodCode: c, status, submissionVersion, currentVersion, submittedAt, ...source })
+  },
   async list(q,t){const u=user(t,'ENTERPRISE');if(q.periodCode&&!periods.some(p=>p.code===q.periodCode))return fail(400,'调查期无效');const all=[...reports.entries()].filter(([k,v])=>k.startsWith(u.orgId+':')&&(!q.periodCode||q.periodCode===v.periodCode)&&(!q.status||q.status===v.status)).map(([,v])=>({reportId:v.reportId!,periodCode:v.periodCode,periodLabel:period(v.periodCode).label,status:v.status!,currentVersion:v.currentVersion,submissionVersion:v.submissionVersion,submittedAt:v.submittedAt,latestReturn:v.latestReturn,voided:v.voided??false,voidedAt:v.voidedAt??null}));return ok({items:all.slice(q.page*q.size,(q.page+1)*q.size),total:all.length,page:q.page,size:q.size})},
   async history(c,t){const u=user(t,'ENTERPRISE');period(c);const k=u.orgId+':'+c;const v=reports.get(k);if(!v)return fail(404,'本企业没有该期报表');return ok(histories.get(k)??{reportId:v.reportId!,periodCode:c,status:'DRAFT' as const,snapshots:[],reviewEvents:[]})},
 }
+}
+export const mockReportProvider = makeMockReportProvider(false)
+export const mockRollingReportProvider = makeMockReportProvider(true)
 function reviewDetail(level:ReviewLevel,id:string,token:string):ReviewDetail {
  const u=user(token,level==='city'?'CITY':'PROVINCE')
  const entry=[...reports.entries()].find(([,v])=>v.reportId===id);const owner=owners.get(id)

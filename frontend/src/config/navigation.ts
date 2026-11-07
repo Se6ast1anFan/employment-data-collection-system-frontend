@@ -18,13 +18,14 @@ export const menusByRole: Record<RoleCode, MenuItemConfig[]> = {
     { label: '企业基本信息', path: '/enterprise/profile' },
     { label: '备案状态', path: '/enterprise/filing' },
     { label: '数据填报', path: '/enterprise/report/new' },
+    { label: '待上报报表', path: '/enterprise/report/batch' },
     { label: '历史数据查询', path: '/enterprise/report/history' },
     { label: '通知浏览', path: '/enterprise/notices' },
   ],
   CITY: [
     { label: '工作首页', path: '/city/home' },
     { label: '辖区报表审核', path: '/city/reports' },
-    { label: '通知浏览', path: '/city/notices' },
+    { label: '通知管理', path: '/city/notices' },
   ],
   PROVINCE: [
     { label: '工作首页', path: '/province/home' },
@@ -35,6 +36,7 @@ export const menusByRole: Record<RoleCode, MenuItemConfig[]> = {
     { label: '数据汇总', path: '/province/summary' },
     { label: '图表分析', path: '/province/analysis' },
     { label: '全省账号查询', path: '/province/accounts' },
+    { label: '企业进度查询', path: '/province/enterprise-progress' },
     { label: '通知管理', path: '/province/notices' },
     { label: '用户管理', path: '/province/users' },
     { label: '角色管理', path: '/province/roles' },

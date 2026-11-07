@@ -52,10 +52,11 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '备案状态', requiresAuth: true, roles: ['ENTERPRISE'] },
   },
   { path: '/enterprise/report/new', component: () => import('@/views/EnterpriseReportsView.vue'), meta: { title: '就业数据填报', requiresAuth: true, roles: ['ENTERPRISE'] } },
+  { path: '/enterprise/report/batch', component: () => import('@/views/EnterpriseBatchView.vue'), meta: { title: '待上报报表', requiresAuth: true, roles: ['ENTERPRISE'] } },
   { path: '/enterprise/report/history', component: () => import('@/views/EnterpriseReportsView.vue'), meta: { title: '历史数据查询', requiresAuth: true, roles: ['ENTERPRISE'] } },
   { path: '/enterprise/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知浏览', requiresAuth: true, roles: ['ENTERPRISE'] } },
   { path: '/city/reports', component: () => import('@/views/ReviewReportsView.vue'), meta: { title: '辖区报表审核', requiresAuth: true, roles: ['CITY'] } },
-  { path: '/city/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知浏览', requiresAuth: true, roles: ['CITY'] } },
+  { path: '/city/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知管理', requiresAuth: true, roles: ['CITY'] } },
   {
     path: '/province/enterprise-accounts/new',
     component: () => import('@/views/ProvinceAccountCreateView.vue'),
@@ -71,6 +72,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/province/summary', component: () => import('@/views/ProvinceSummaryView.vue'), meta: { title: '数据汇总', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/data/reports/:reportId', component: () => import('@/views/ProvinceCorrectionView.vue'), meta: { title: '修订与追溯', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/analysis', component: () => import('@/views/ProvinceAnalysisView.vue'), meta: { title: '就业数据分析', requiresAuth: true, roles: ['PROVINCE'] } },
+  { path: '/province/enterprise-progress', component: () => import('@/views/ProvinceProgressView.vue'), meta: { title: '企业进度查询', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/accounts', component: () => import('@/views/ProvinceAccountsView.vue'), meta: { title: '全省账号查询', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知管理', requiresAuth: true, roles: ['PROVINCE'] } },
   page('/province/users', 'PROVINCE', '用户管理', '管理省级、市级和企业账号及角色分配。', [
@@ -87,12 +89,7 @@ const routes: RouteRecordRaw[] = [
   page('/province/monitor', 'PROVINCE', '系统监控', '查看 CPU、内存、磁盘及应用运行情况。', [
     { label: '刷新监控', week: 7 },
   ]),
-  page('/integration', 'PROVINCE', '国家接口', '查看数据交换批次、回执和失败重试状态。', [
-    { label: '生成批次', week: 7 },
-    { label: '发送', week: 7 },
-    { label: '查询回执', week: 7 },
-    { label: '重试', week: 7 },
-  ]),
+  { path: '/integration', component: () => import('@/views/NationalPrototypeView.vue'), meta: { title: '国家上报原型', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/403', component: () => import('@/views/ForbiddenView.vue'), meta: { title: '无权限' } },
   { path: '/404', component: () => import('@/views/NotFoundView.vue'), meta: { title: '页面不存在' } },
   { path: '/:pathMatch(.*)*', redirect: '/404' },

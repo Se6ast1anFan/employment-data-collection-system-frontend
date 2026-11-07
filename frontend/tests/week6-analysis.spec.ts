@@ -30,7 +30,7 @@ describe('第六周两市三期指标与动态有效值',()=>{
  expect(shares.totalEnterpriseCount).toBe(2);expect(shares.cities.map(c=>c.sharePercent)).toEqual([50,50])
  expect((await api.cities({periodCode:'W6_A',regionCode:'W6_C2'},p)).data).toMatchObject({totalEnterpriseCount:1,cities:[{cityName:'第二演示市',sharePercent:100}]})
  const trend=(await api.trend({periodCodes:['W6_A','W6_B','W6_C']},p)).data
- expect(trend.points.map(p=>p.metrics.changePercent)).toEqual([-6.67,10,null]);expect(trend.points[2].hasSample).toBe(false)
+ expect(trend.points.map(p=>p.metrics?.changePercent??null)).toEqual([-6.67,10,null]);expect(trend.points[2].hasSample).toBe(false)
  await expect(api.trend({periodCodes:['W6_A','W6_C']},p)).rejects.toMatchObject({status:400})
  await expect(api.trend({periodCodes:['W6_B','W6_A']},p)).rejects.toMatchObject({status:400})
  await expect(api.compare({firstPeriodCode:'W6_A',secondPeriodCode:'W6_A'},p)).rejects.toMatchObject({status:400})
@@ -44,13 +44,13 @@ describe('第六周两市三期指标与动态有效值',()=>{
  await management.void('711',{expectedVersion:4,submissionVersion:1,reason:'匿名样例作废'},p)
  expect((await api.cities({periodCode:'W6_A'},p)).data.totalEnterpriseCount).toBe(1)
  const after=(await api.trend({periodCodes:['W6_A','W6_B','W6_C']},p)).data
- expect(after.points[0].metrics.changePercent).toBe(-30)
+ expect(after.points[0].metrics?.changePercent).toBe(-30)
  // 当前备案属性变化不能污染冻结版本筛选。
  f.records.get('801')!.profile!.natureCode='DEMO_NATURE_2_1'
  expect((await api.compare({firstPeriodCode:'W6_A',secondPeriodCode:'W6_B',natureParentCode:'DEMO_NATURE_1'},p)).data.periods[0].metrics.enterpriseCount).toBe(1)
  await expect(api.compare({firstPeriodCode:'W6_A',secondPeriodCode:'W6_B',natureParentCode:'DEMO_NATURE_2',natureCode:'DEMO_NATURE_1_1'},p)).rejects.toMatchObject({status:400})
  seed('713','804','W6_C',0,0,'201','UNAVAILABLE')
  const zero=(await api.trend({periodCodes:['W6_B','W6_C']},p)).data.points[1]
- expect(zero.hasSample).toBe(true);expect(zero.metrics.changePercent).toBeNull();expect(zero.metrics.filingSourceCounts.UNAVAILABLE).toBe(1)
+ expect(zero.hasSample).toBe(true);expect(zero.metrics?.changePercent).toBeNull();expect(zero.metrics?.filingSourceCounts?.UNAVAILABLE).toBe(1)
  })
 })

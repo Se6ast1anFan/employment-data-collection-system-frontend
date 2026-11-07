@@ -1,6 +1,6 @@
 import { request } from '@/services/api'
 import { apiMode } from '@/services/auth'
-import { mockReportProvider } from '@/mock/report'
+import { mockRollingReportProvider } from '@/mock/report'
 import type { ApiResponse } from '@/types/api'
 import type { SurveyPeriod, EnterprisePeriod, CreatePeriod, UpdatePeriod, ReportOptions, ReportView, ReportForm, ReportQuery, ReportListItem, ReportHistory, SubmitResult } from '@/types/report'
 export interface ReportProvider {
@@ -22,4 +22,4 @@ const real: ReportProvider = {
   enterprisePeriods: t => request('/enterprise/periods',{},t), options: t => request('/enterprise/reports/options',{},t), get: (c,t) => request(path(c),{},t), save: (c,b,t) => request(path(c),json('PUT',b),t), submit: (c,v,t) => request(path(c)+'/submit',json('POST',{expectedVersion:v}),t),
   list: (q,t) => { const p = new URLSearchParams(); for(const [k,v] of Object.entries(q)) if(v !== undefined && v !== '') p.set(k,String(v)); return request('/enterprise/reports?'+p,{},t) }, history: (c,t) => request(path(c)+'/history',{},t),
 }
-export const reportProvider: ReportProvider = apiMode === 'mock' ? mockReportProvider : real
+export const reportProvider: ReportProvider = apiMode === 'mock' ? mockRollingReportProvider : real

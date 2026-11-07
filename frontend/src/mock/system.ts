@@ -20,6 +20,10 @@ const children: Record<string, RegionItem[]> = {
 
 const regionPaths = new Map<string,RegionInfo>(regions.map((item,index)=>[item.code,{code:item.code,name:item.name,path:regions.slice(0,index+1)}]))
 export function getMockRegionInfo(code:string):RegionInfo|undefined { return regionPaths.get(code) }
+export function mockCityOrgId(regionCode: string) {
+  const cityCode = getMockRegionInfo(regionCode)?.path.find(region => region.level === 2)?.code
+  return cityCode === 'DEMO_C' ? '201' : cityCode
+}
 // 用于本地测试注入匿名地区树；默认演示数据保持原有单链。
 export function registerMockRegionPath(path:RegionItem[]) {
   path.forEach((item,index)=>{

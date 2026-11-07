@@ -59,8 +59,8 @@ async function submit() {
   <main class="login-page">
     <section class="login-intro">
       <p class="eyebrow">云南省企业就业失业数据采集系统</p>
-      <h1>第六周数据分析与通知</h1>
-      <p>省级按调查期分析有效报表并管理本省通知，企业与市级可浏览所属省通知。</p>
+      <h1>企业就业数据工作台</h1>
+      <p>企业填报就业数据，市级审核辖区报表，省级汇总与分析。</p>
       <ul>
         <li>企业、市级、省级三类角色独立菜单</li>
         <li>企业备案版本、退回理由与审核留痕</li>

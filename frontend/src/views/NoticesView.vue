@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { noticeProvider as api } from '@/services/week6'
+import { noticeProvider, cityNoticeProvider } from '@/services/week6'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/services/api'
 import { noticeErrors, codePointLength } from '@/utils/week6'
 import { formatBeijingTime } from '@/utils/filing'
 import type { NoticeDetail, NoticeSummary } from '@/types/week6'
-const auth=useAuthStore(), province=computed(()=>auth.user?.roleCode==='PROVINCE')
+const auth = useAuthStore()
+const role = auth.user?.roleCode
+const manager = role === 'PROVINCE' || role === 'CITY'
+const api = role === 'CITY' ? cityNoticeProvider : noticeProvider
+const levelLabel = (notice: NoticeSummary) => notice.publisherLevel === 'CITY' ? '市级' : '省级'
+const ownLevel = (notice: NoticeSummary) => manager && (notice.publisherLevel ?? 'PROVINCE') === role
 const rows=ref<NoticeSummary[]>([]),detail=ref<NoticeDetail|null>(null),page=ref(1),total=ref(0)
 const busy=ref(false),error=ref(''),visible=ref(false),editor=ref(false),errors=ref<Record<string,string>>({})
 const editId=ref<string|null>(null),editVersion=ref<number|null>(null),form=reactive({title:'',content:''})
@@ -43,9 +48,9 @@ async function perform(fn:()=>Promise<void>,id?:string){
   }finally{busy.value=false}
 }
 function create(){editId.value=null;editVersion.value=null;form.title='';form.content='';errors.value={};editor.value=true}
-async function edit(id:string){await perform(async()=>{await read(id);if(!province.value||!detail.value?.canEdit)return;editId.value=id;editVersion.value=detail.value.currentVersion;form.title=detail.value.title;form.content=detail.value.content;errors.value={};editor.value=true},id)}
+async function edit(id:string){await perform(async()=>{await read(id);if(!detail.value || !ownLevel(detail.value) || !detail.value.canEdit)return;editId.value=id;editVersion.value=detail.value.currentVersion;form.title=detail.value.title;form.content=detail.value.content;errors.value={};editor.value=true},id)}
 async function save(){
-  if(!province.value||busy.value)return
+  if(!manager||busy.value)return
   errors.value=noticeErrors(form)
   if(Object.keys(errors.value).length)return
   const body={title:form.title.trim(),content:form.content.trim()}
@@ -56,7 +61,7 @@ async function save(){
 }
 async function remove(){
   const d=detail.value
-  if(!province.value||!d?.canDelete||busy.value)return
+  if(!d || !ownLevel(d) || !d.canDelete||busy.value)return
   try{await ElMessageBox.confirm(`确认删除通知“${d.title}”？删除后将不再展示。`,'删除通知',{type:'warning',confirmButtonText:'确认删除'})}catch{return}
   await perform(async()=>{await api.delete(d.noticeId,d.currentVersion,auth.token!);visible.value=false;detail.value=null;await load();ElMessage.success('通知已删除')},d.noticeId)
 }
@@ -64,10 +69,10 @@ onMounted(()=>perform(load))
 </script>
 <template>
 <section>
-  <div class="page-heading"><div><h1>{{province?'通知管理':'通知浏览'}}</h1><p>{{province?'发布和管理本省通知，发布时间与发布单位由系统生成。':'查看所属省发布的通知。'}}</p></div><div class="heading-actions"><el-button :disabled="busy" @click="perform(load)">刷新列表</el-button><el-button v-if="province" type="primary" :disabled="busy" @click="create">发布通知</el-button></div></div>
+  <div class="page-heading"><div><h1>{{manager?'通知管理':'通知浏览'}}</h1><p>{{role==='CITY'?'发布本市通知，也可浏览本省通知。':role==='PROVINCE'?'发布和管理本省通知。':'查看所属省和所属市发布的通知。'}}</p></div><div class="heading-actions"><el-button :disabled="busy" @click="perform(load)">刷新列表</el-button><el-button v-if="manager" type="primary" :disabled="busy" @click="create">发布通知</el-button></div></div>
   <el-alert v-if="error" :title="error" type="error" :closable="false"/>
-  <el-card shadow="never" v-loading="busy"><el-table :data="rows" empty-text="暂无可见通知"><el-table-column prop="title" label="标题" min-width="220"/><el-table-column prop="publisherUnitName" label="发布单位" min-width="180"/><el-table-column label="发布时间（北京时间）" min-width="190"><template #default="s">{{formatBeijingTime(s.row.publishedAt)}}</template></el-table-column><el-table-column label="修改时间" min-width="190"><template #default="s">{{formatBeijingTime(s.row.updatedAt)}}</template></el-table-column><el-table-column label="操作" fixed="right" width="140"><template #default="s"><el-button link type="primary" :disabled="busy" @click="perform(()=>read(s.row.noticeId),s.row.noticeId)">查看</el-button><el-button v-if="province&&s.row.canEdit" link :disabled="busy" @click="edit(s.row.noticeId)">修改</el-button></template></el-table-column></el-table><el-pagination v-model:current-page="page" :disabled="busy" :total="total" :page-size="20" layout="total,prev,pager,next" @current-change="perform(load)"/></el-card>
-  <el-drawer v-model="visible" title="通知详情" size="min(800px,96vw)" :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy"><template v-if="detail"><h2>{{detail.title}}</h2><p>{{detail.publisherUnitName}} · {{formatBeijingTime(detail.publishedAt)}}</p><p v-if="detail.updatedAt">修改于 {{formatBeijingTime(detail.updatedAt)}}</p><div class="notice-content">{{detail.content}}</div><div v-if="province" class="form-actions"><el-button v-if="detail.canEdit" :disabled="busy" @click="edit(detail.noticeId)">修改通知</el-button><el-button v-if="detail.canDelete" type="danger" :disabled="busy" @click="remove">删除通知</el-button></div></template></el-drawer>
+  <el-card shadow="never" v-loading="busy"><el-table :data="rows" empty-text="暂无可见通知"><el-table-column prop="title" label="标题" min-width="220"/><el-table-column label="发布级别" width="100"><template #default="s">{{levelLabel(s.row)}}</template></el-table-column><el-table-column prop="publisherUnitName" label="发布单位" min-width="180"/><el-table-column label="发布时间（北京时间）" min-width="190"><template #default="s">{{formatBeijingTime(s.row.publishedAt)}}</template></el-table-column><el-table-column label="修改时间" min-width="190"><template #default="s">{{formatBeijingTime(s.row.updatedAt)}}</template></el-table-column><el-table-column label="操作" fixed="right" width="140"><template #default="s"><el-button link type="primary" :disabled="busy" @click="perform(()=>read(s.row.noticeId),s.row.noticeId)">查看</el-button><el-button v-if="ownLevel(s.row)&&s.row.canEdit" link :disabled="busy" @click="edit(s.row.noticeId)">修改</el-button></template></el-table-column></el-table><el-pagination v-model:current-page="page" :disabled="busy" :total="total" :page-size="20" layout="total,prev,pager,next" @current-change="perform(load)"/></el-card>
+  <el-drawer v-model="visible" title="通知详情" size="min(800px,96vw)" :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy"><template v-if="detail"><h2>{{detail.title}}</h2><p>{{levelLabel(detail)}} · {{detail.publisherUnitName}} · {{formatBeijingTime(detail.publishedAt)}}</p><p v-if="detail.updatedAt">修改于 {{formatBeijingTime(detail.updatedAt)}}</p><div class="notice-content">{{detail.content}}</div><div v-if="ownLevel(detail)" class="form-actions"><el-button v-if="detail.canEdit" :disabled="busy" @click="edit(detail.noticeId)">修改通知</el-button><el-button v-if="detail.canDelete" type="danger" :disabled="busy" @click="remove">删除通知</el-button></div></template></el-drawer>
   <el-dialog v-model="editor" :title="editId?'修改通知':'发布通知'" width="min(700px,96vw)" :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy"><el-form label-position="top" :disabled="busy"><el-form-item label="通知标题" required :error="errors.title"><el-input v-model="form.title" placeholder="标题必填，最多50字"/><span class="muted">{{codePointLength(form.title.trim())}} / 50 字</span></el-form-item><el-form-item label="通知正文" required :error="errors.content"><el-input v-model="form.content" type="textarea" :rows="10" placeholder="正文必填，最多2000字，支持换行"/><span class="muted">{{codePointLength(form.content.trim())}} / 2000 字</span></el-form-item></el-form><p>按字符计数，首尾空白不计入；正文以纯文本展示。</p><template #footer><el-button :disabled="busy" @click="editor=false">取消</el-button><el-button type="primary" :loading="busy" @click="save">{{editId?'保存修改':'确认发布'}}</el-button></template></el-dialog>
 </section>
 </template>
