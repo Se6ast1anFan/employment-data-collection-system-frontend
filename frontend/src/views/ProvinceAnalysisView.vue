@@ -72,7 +72,7 @@ onMounted(initialize)
   <div class="page-heading"><div><h1>就业数据分析</h1><p>只分析本省已省审通过、未作废的最新提交版本；调查期人数使用当前有效修订值。</p></div><el-button :disabled="busy" @click="loadPeriods">刷新调查期</el-button></div>
   <el-alert v-if="error" :title="error" type="error" :closable="false"/>
   <ul v-if="Object.keys(fieldErrors).length" role="alert"><li v-for="(message,key) in fieldErrors" :key="key">{{message}}</li></ul>
-  <div class="analysis-tabs"><el-button v-for="item in ([{key:'cities',label:'各市数量与占比'},{key:'compare',label:'两期六项对比'},{key:'trend',label:'连续多期趋势'},{key:'breakdown',label:'分组对比与企业下钻'}] as const)" :key="item.key" :type="mode===item.key?'primary':'default'" :disabled="busy" @click="mode=item.key">{{item.label}}</el-button></div>
+  <div class="analysis-tabs" role="group" aria-label="分析方式"><el-button v-for="item in ([{key:'cities',label:'各市数量与占比'},{key:'compare',label:'两期六项对比'},{key:'trend',label:'连续多期趋势'},{key:'breakdown',label:'分组对比与企业下钻'}] as const)" :key="item.key" :type="mode===item.key?'primary':'default'" :aria-pressed="mode===item.key" :disabled="busy" @click="mode=item.key">{{item.label}}</el-button></div>
   <RevisionBreakdown v-if="mode==='breakdown'" :periods="periods" :initial-period="periodCode" @select-enterprise="selectEnterprise" />
   <template v-else>
   <el-card shadow="never" v-loading="busy">

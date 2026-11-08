@@ -58,30 +58,21 @@ async function submit() {
 <template>
   <main class="login-page">
     <section class="login-intro">
-      <p class="eyebrow">云南省企业就业失业数据采集系统</p>
-      <h1>企业就业数据工作台</h1>
-      <p>企业填报就业数据，市级审核辖区报表，省级汇总与分析。</p>
-      <ul>
-        <li>企业、市级、省级三类角色独立菜单</li>
-        <li>企业备案版本、退回理由与审核留痕</li>
-        <li>后续周次功能继续保持清晰占位</li>
-      </ul>
+      <span class="brand-mark" aria-hidden="true">云</span>
+      <h1>云南省企业就业失业<br />数据采集系统</h1>
+      <ol class="login-flow" aria-label="业务流程">
+        <li>企业填报</li><li>市级审核</li><li>省级汇总与分析</li>
+      </ol>
     </section>
-    <el-card class="login-card" shadow="always">
+    <el-card class="login-card" shadow="never">
       <div class="login-card__header">
         <div>
           <h2>用户登录</h2>
           <p>请输入系统账号和密码</p>
         </div>
-        <el-tag :type="isMock ? 'warning' : 'success'">{{ isMock ? 'Mock 模式' : '真实接口' }}</el-tag>
+        <el-tag v-if="isMock" type="warning">本地演示</el-tag>
       </div>
-      <el-alert
-        v-if="!isMock"
-        title="当前连接真实接口；若后端尚未启动，请使用 npm run dev:mock 演示。"
-        type="info"
-        :closable="false"
-      />
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @keyup.enter="submit">
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" size="large" @keyup.enter="submit">
         <el-form-item label="登录账号" prop="username">
           <el-input v-model="form.username" maxlength="64" autocomplete="username" placeholder="请输入账号" />
         </el-form-item>

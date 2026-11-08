@@ -49,7 +49,8 @@ const activeStep = computed(() => {
   const { step, completed } = enterpriseProgress.value
   return completed ? steps.length : step === null ? 0 : step - 1
 })
-const cityCards = { pendingCity: '待市审', approvedCity: '市审通过', returnedCity: '市级退回', forwardedProvince: '已转报省级', notSubmitted: '本期未上报' } as const
+const isReturned = computed(() => ['RETURNED_CITY', 'RETURNED_PROVINCE'].includes(enterprise.value?.reportStatus ?? ''))
+const cityCards = { pendingCity: '待市审', returnedCity: '市级退回', approvedCity: '市审通过', forwardedProvince: '已转报省级', notSubmitted: '本期未上报' } as const
 const cityStatus = { pendingCity: 'SUBMITTED_CITY', returnedCity: 'RETURNED_CITY' } as const
 
 function target(entry: OverviewLink) {
@@ -99,14 +100,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section>
+  <section class="work-overview">
     <div class="page-heading">
-      <div><p class="eyebrow">{{ roleNames[role] }}</p><h1>工作概览</h1><p>{{ auth.user?.orgName }} · {{ auth.user?.displayName }}</p></div>
+      <div><h1>工作概览</h1><p>{{ auth.user?.orgName }} · {{ roleNames[role] }}</p></div>
       <el-button :disabled="busy" @click="load">刷新概览</el-button>
     </div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="periodError" :title="periodError" type="warning" :closable="false" />
-    <el-card v-loading="busy" shadow="never" class="business-card">
+    <div v-loading="busy" :aria-busy="busy" class="overview-stack">
+      <section class="period-band" aria-label="调查期">
       <el-form inline :disabled="busy" @submit.prevent="load">
         <el-form-item label="调查期">
           <el-select v-if="role !== 'CITY' && periods.length" v-model="periodCode" clearable style="width:250px" @change="load">
@@ -116,74 +118,94 @@ onMounted(async () => {
         </el-form-item>
         <el-button native-type="submit">查看期次</el-button>
       </el-form>
-      <p v-if="selected">{{ selected.periodLabel }}（{{ selected.periodCode }}） · {{ windowLabels[selected.windowStatus] || selected.windowStatus }} · 截止 {{ formatBeijingTime(selected.deadlineAt) }}（北京时间）</p>
+      <div v-if="selected" class="period-summary">
+        <div><strong>{{ selected.periodLabel }}</strong><span class="muted">{{ selected.periodCode }}</span></div>
+        <el-tag :type="selected.windowStatus === 'OPEN' ? 'success' : 'info'">{{ windowLabels[selected.windowStatus] || selected.windowStatus }}</el-tag>
+        <span>截止 {{ formatBeijingTime(selected.deadlineAt) }}（北京时间）</span>
+      </div>
       <el-alert v-else-if="ready" title="暂无调查期" type="info" :closable="false" />
-      <template v-if="role === 'ENTERPRISE'">
-        <el-steps :active="activeStep" :process-status="enterpriseProgress.step === null ? 'wait' : 'process'" finish-status="success" align-center aria-label="企业填报六步进度">
-          <el-step v-for="step in steps" :key="step" :title="step" />
-        </el-steps>
-        <p role="status"><strong v-if="enterpriseProgress.step !== null">第 {{ enterpriseProgress.step }} 步 · </strong>{{ enterpriseProgress.label }}</p>
-      </template>
-      <template v-if="enterprise">
-        <p>备案进度 {{ filingProgressLabels[enterprise.filingStatus as FilingProgressStatus] || enterprise.filingStatus }}</p>
-        <p v-if="selected">本期报表 {{ enterprise.reportStatus ? reportProgressLabels[enterprise.reportStatus as ReportProgressStatus] || enterprise.reportStatus : '本期未上报' }}</p>
+      </section>
+      <section v-if="role === 'ENTERPRISE'" class="overview-panel">
+        <h2>企业填报六步进度</h2>
+        <ol class="filing-steps" aria-label="企业填报六步进度">
+          <li v-for="(step, index) in steps" :key="step" :class="{ 'step-done': index < activeStep, 'step-current': !enterpriseProgress.completed && enterpriseProgress.step === index + 1 }" :aria-current="!enterpriseProgress.completed && enterpriseProgress.step === index + 1 ? 'step' : undefined">
+            <span class="step-marker" aria-hidden="true">{{ index < activeStep ? '✓' : index + 1 }}</span>
+            <span>{{ step }}<span v-if="index < activeStep" class="sr-only">（已完成）</span></span>
+          </li>
+        </ol>
+        <div class="progress-summary" :class="{ 'progress-summary--returned': isReturned }">
+          <div>
+            <strong role="status"><template v-if="enterpriseProgress.step !== null && !enterpriseProgress.completed">第 {{ enterpriseProgress.step }} 步 · </template>{{ enterpriseProgress.label }}</strong>
+            <div v-if="enterprise" class="progress-meta">
+              <span>备案：{{ filingProgressLabels[enterprise.filingStatus as FilingProgressStatus] || enterprise.filingStatus }}</span>
+              <span v-if="selected">本期报表：{{ enterprise.reportStatus ? reportProgressLabels[enterprise.reportStatus as ReportProgressStatus] || enterprise.reportStatus : '本期未上报' }}</span>
+            </div>
+          </div>
+          <router-link v-if="enterprise?.nextAction?.enabled && target(enterprise.nextAction)" class="overview-primary" :to="target(enterprise.nextAction)!">{{ enterprise.nextAction.label }}</router-link>
+          <el-button v-else-if="error" @click="load">重新读取</el-button>
+        </div>
+        <template v-if="enterprise">
         <el-alert v-if="enterprise.latestReturnReason" :title="'退回备注：' + enterprise.latestReturnReason" type="warning" :closable="false" />
         <div class="overview-links">
-          <router-link v-if="enterprise.nextAction?.enabled && target(enterprise.nextAction)" :to="target(enterprise.nextAction)!">{{ enterprise.nextAction.label }}</router-link>
           <router-link to="/enterprise/profile">备案资料</router-link>
           <router-link to="/enterprise/report/history">历史数据</router-link>
           <router-link to="/enterprise/notices">通知（{{ enterprise.visibleNoticeCount }}）</router-link>
         </div>
-      </template>
-      <template v-if="city">
-        <p>统计范围 {{ auth.user?.orgName }} · {{ selected?.periodLabel || '暂无调查期' }}。市审通过和转报省级的记录可能重叠。</p>
+        </template>
+      </section>
+      <section v-if="city" class="overview-panel">
+        <h2>辖区审核队列</h2>
         <dl class="overview-counters">
           <div v-for="(label, key) in cityCards" :key="key">
             <dt>{{ label }}</dt>
-            <dd><router-link v-if="selected && (key === 'pendingCity' || key === 'returnedCity')" :to="{path:'/city/reports', query:{periodCode:selected.periodCode,status:cityStatus[key]}}">{{ city.reportCounts[key] }}</router-link><span v-else>{{ city.reportCounts[key] }}</span></dd>
+            <dd>
+              <router-link v-if="selected && (key === 'pendingCity' || key === 'returnedCity')" :to="{path:'/city/reports', query:{periodCode:selected.periodCode,status:cityStatus[key]}}">
+                {{ city.reportCounts[key] }}<span>查看{{ label }}报表</span>
+              </router-link>
+              <template v-else>{{ city.reportCounts[key] }}</template>
+            </dd>
           </div>
         </dl>
+        <p class="muted">统计范围为{{ auth.user?.orgName }}。市审通过和转报省级的记录可能重叠。</p>
         <div class="overview-links">
           <router-link v-if="city.nextAction?.enabled && target(city.nextAction)" :to="target(city.nextAction)!">{{ city.nextAction.label }}</router-link>
           <router-link to="/city/notices">{{ city.noticeEntry?.label || '通知管理' }}</router-link>
         </div>
-      </template>
+      </section>
       <template v-if="province">
-        <p>统计范围 {{ auth.user?.orgName }} · {{ selected?.periodLabel || '暂无调查期' }}。备案待审按当前备案统计。</p>
+        <section class="overview-panel">
+        <h2>省级待办与审核结果</h2>
         <dl class="overview-counters">
-          <div><dt>备案待审</dt><dd><router-link :to="{path:'/province/filings',query:{status:'PENDING'}}">{{ province.pendingFilingCount }}</router-link></dd></div>
-          <div><dt>报表待审</dt><dd><router-link v-if="selected" :to="{path:'/province/reports',query:{periodCode:selected?.periodCode}}">{{ province.pendingReportCount }}</router-link><span v-else>{{ province.pendingReportCount }}</span></dd></div>
-          <div><dt>省审通过</dt><dd><router-link v-if="selected" :to="{path:'/province/reports',query:{periodCode:selected?.periodCode,status:'APPROVED_PROVINCE'}}">{{ province.approvedReportCount }}</router-link><span v-else>{{ province.approvedReportCount }}</span></dd></div>
-          <div><dt>已转报城市</dt><dd>{{ province.cityProgress.submittedCityCount }}</dd></div>
-          <div><dt>未转报城市</dt><dd>{{ province.cityProgress.notSubmittedCityCount }}</dd></div>
+          <div><dt>备案待审</dt><dd><router-link :to="{path:'/province/filings',query:{status:'PENDING'}}">{{ province.pendingFilingCount }}<span>查看待审备案</span></router-link></dd></div>
+          <div><dt>报表待审</dt><dd><router-link v-if="selected" :to="{path:'/province/reports',query:{periodCode:selected.periodCode}}">{{ province.pendingReportCount }}<span>查看待审报表</span></router-link><template v-else>{{ province.pendingReportCount }}</template></dd></div>
+          <div><dt>省审通过</dt><dd><router-link v-if="selected" :to="{path:'/province/reports',query:{periodCode:selected.periodCode,status:'APPROVED_PROVINCE'}}">{{ province.approvedReportCount }}<span>查看通过报表</span></router-link><template v-else>{{ province.approvedReportCount }}</template></dd></div>
         </dl>
-        <el-card v-if="province.nationalReportCard" class="business-card" shadow="never">
-          <template #header><strong>国家上报</strong> <el-tag type="warning">模拟接口 · MOCK</el-tag></template>
-          <p>{{ province.nationalReportCard.label }}<span v-if="province.nationalReportCard.periodCode"> · {{ province.nationalReportCard.periodCode }}</span></p>
-          <router-link :to="nationalBatchLocation(province.nationalReportCard.periodCode, province.nationalReportCard.batchId)">
-            {{ province.nationalReportCard.canRetry ? '查看批次与继续发送' : province.nationalReportCard.canStart ? '进入上报预览' : '查看国家上报' }}
-          </router-link>
-        </el-card>
+        <p class="muted">备案待审按当前备案统计，报表数量按所选调查期统计。</p>
+        </section>
+        <section class="overview-panel">
+        <h2>分市上报进度</h2>
+        <p class="muted">已转报 {{ province.cityProgress.submittedCityCount }} 市，未转报 {{ province.cityProgress.notSubmittedCityCount }} 市</p>
         <el-table :data="province.cityProgress.items" empty-text="暂无各市上报记录">
-          <el-table-column prop="cityName" label="城市" />
-          <el-table-column prop="eligibleEnterpriseCount" label="符合填报资格" />
-          <el-table-column prop="submittedEnterpriseCount" label="已上报企业" />
-          <el-table-column prop="notSubmittedEnterpriseCount" label="未上报企业" />
-          <el-table-column label="进度详情"><template #default="{ row }"><router-link v-if="selected" :to="{path:'/province/enterprise-progress',query:{periodCode:selected.periodCode,cityCode:row.cityCode}}">查看</router-link></template></el-table-column>
+          <el-table-column prop="cityName" label="城市" min-width="120" />
+          <el-table-column prop="eligibleEnterpriseCount" label="符合填报资格" align="right" min-width="120" />
+          <el-table-column prop="submittedEnterpriseCount" label="已上报企业" align="right" min-width="105" />
+          <el-table-column prop="notSubmittedEnterpriseCount" label="未上报企业" align="right" min-width="105" />
+          <el-table-column label="进度详情" min-width="90"><template #default="{ row }"><router-link v-if="selected" :to="{path:'/province/enterprise-progress',query:{periodCode:selected.periodCode,cityCode:row.cityCode}}">查看</router-link></template></el-table-column>
         </el-table>
         <div class="overview-links">
           <template v-for="entry in province.entries" :key="entry.route"><router-link v-if="target(entry)" :to="target(entry)!">{{ entry.label }}</router-link></template>
           <router-link :to="{path:'/province/summary',query:{periodCode:selected?.periodCode}}">数据汇总</router-link>
           <router-link :to="{path:'/province/analysis',query:{periodCode:selected?.periodCode}}">图表分析</router-link>
         </div>
+        </section>
+        <section v-if="province.nationalReportCard" class="overview-panel">
+          <h2>国家上报 <el-tag type="warning">模拟接口 · MOCK</el-tag></h2>
+          <p>{{ province.nationalReportCard.label }}<span v-if="province.nationalReportCard.periodCode"> · {{ province.nationalReportCard.periodCode }}</span></p>
+          <router-link :to="nationalBatchLocation(province.nationalReportCard.periodCode, province.nationalReportCard.batchId)">
+            {{ province.nationalReportCard.canRetry ? '查看批次与继续发送' : province.nationalReportCard.canStart ? '进入上报预览' : '查看国家上报' }}
+          </router-link>
+        </section>
       </template>
-    </el-card>
+    </div>
   </section>
 </template>
-
-<style scoped>
-.overview-counters { display: flex; flex-wrap: wrap; gap: 16px; }
-.overview-counters div { border: 1px solid #e5e8ee; border-radius: 8px; padding: 12px 16px; min-width: 110px; }
-dd { margin: 6px 0 0; font-size: 22px; }
-.overview-links { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; }
-</style>

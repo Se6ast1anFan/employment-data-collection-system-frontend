@@ -237,7 +237,7 @@ onBeforeUnmount(() => { disposed = true; stopPoll() })
     <el-alert title="V1 使用项目内部模拟接收端，真实国家平台尚未接入。" type="warning" :closable="false" show-icon />
 
     <el-card class="business-card" shadow="never" v-loading="loadingPeriods">
-      <template #header><strong>调查期列表</strong></template>
+      <template #header><h2 class="national-stage">1. 核对调查期条件</h2></template>
       <el-alert v-if="periodError" :title="periodError" type="error" :closable="false" />
       <el-table :data="periods" row-key="code" empty-text="暂无调查期">
         <el-table-column label="调查期" min-width="175"><template #default="{ row }">{{ row.label }}（{{ row.code }}）</template></el-table-column>
@@ -264,7 +264,7 @@ onBeforeUnmount(() => { disposed = true; stopPoll() })
     </el-card>
 
     <el-card class="business-card" shadow="never" v-loading="loadingPreview">
-      <template #header><strong>上报预览{{ selectedCode ? ' · ' + selectedCode : '' }}</strong></template>
+      <template #header><h2 class="national-stage">2. 核对上报预览与缺报{{ selectedCode ? ' · ' + selectedCode : '' }}</h2></template>
       <el-alert v-if="creationError" :title="creationError" type="error" :closable="false" />
       <ul v-if="creationBlockers.length"><li v-for="(message, index) in creationBlockers" :key="index">{{ message }}</li></ul>
       <el-alert v-if="selectedCode && statusErrors[selectedCode]" :title="statusErrors[selectedCode]" type="error" :closable="false" />
@@ -289,7 +289,7 @@ onBeforeUnmount(() => { disposed = true; stopPoll() })
     </el-card>
 
     <el-card class="business-card" shadow="never" v-loading="historyBusy">
-      <template #header><strong>模拟批次历史</strong></template>
+      <template #header><h2 class="national-stage">3. 查看冻结批次与模拟回执</h2></template>
       <el-form inline :disabled="historyBusy" @submit.prevent="applyHistoryFilters">
         <el-form-item label="调查期"><el-select v-model="historyFilters.periodCode" style="width:220px" clearable placeholder="全部调查期">
           <el-option v-for="period in periods" :key="period.code" :label="period.label" :value="period.code" />
