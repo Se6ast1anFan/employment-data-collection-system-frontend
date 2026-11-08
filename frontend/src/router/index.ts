@@ -89,7 +89,8 @@ const routes: RouteRecordRaw[] = [
   page('/province/monitor', 'PROVINCE', '系统监控', '查看 CPU、内存、磁盘及应用运行情况。', [
     { label: '刷新监控', week: 7 },
   ]),
-  { path: '/integration', component: () => import('@/views/NationalPrototypeView.vue'), meta: { title: '国家上报原型', requiresAuth: true, roles: ['PROVINCE'] } },
+  { path: '/integration', redirect: to => ({ path: '/province/national', query: to.query }) },
+  { path: '/province/national', component: () => import('@/views/NationalReportView.vue'), meta: { title: '国家上报 · 模拟接口', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/403', component: () => import('@/views/ForbiddenView.vue'), meta: { title: '无权限' } },
   { path: '/404', component: () => import('@/views/NotFoundView.vue'), meta: { title: '页面不存在' } },
   { path: '/:pathMatch(.*)*', redirect: '/404' },

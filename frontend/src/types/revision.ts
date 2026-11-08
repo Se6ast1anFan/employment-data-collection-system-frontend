@@ -1,5 +1,6 @@
 import type { SurveyPeriod } from './report'
 import type { AnalysisFilters, SixMetrics } from './week6'
+import type { NationalReportCard } from './national'
 
 export type BaselineSourceKind = 'FIRST_SUBMISSION' | 'PREVIOUS_SUBMISSION' | 'LEGACY_MIGRATED'
 export interface BaselineSource {
@@ -27,12 +28,13 @@ export interface SelectedPeriod {
 }
 export interface OverviewLink { label: string; route: string }
 export interface NextAction extends OverviewLink { enabled: boolean }
+export type EnterpriseStepSummary = 'WAIT_FOR_FILING' | 'WAIT_FOR_PERIOD' | 'COMPLETE_REPORT' | 'FIX_RETURNED_REPORT' | 'WAIT_FOR_REVIEW'
 export interface EnterpriseOverview {
   selectedPeriod: SelectedPeriod | null
   filingStatus: string
   reportStatus: string | null
   latestReturnReason: string | null
-  currentStep: string
+  currentStep: EnterpriseStepSummary
   nextAction: NextAction
   visibleNoticeCount: number
 }
@@ -43,6 +45,7 @@ export interface CityOverview {
   nextAction: NextAction
 }
 export interface ProvinceOverview {
+  nationalReportCard?: NationalReportCard
   selectedPeriod: SelectedPeriod | null
   pendingFilingCount: number
   pendingReportCount: number

@@ -1,3 +1,4 @@
+import { mockNationalCard } from '@/mock/national'
 import { getMockUserForToken, managementMockAccounts } from '@/mock/auth'
 import { getMockRegionInfo, mockCityOrgId } from '@/mock/system'
 import { managementMockFilings } from '@/mock/filing'
@@ -9,7 +10,7 @@ import { reportFilterStates, directionLabels } from '@/utils/revision'
 import { orderedPeriods } from '@/utils/week6'
 import type { RevisionProvider } from '@/services/revision'
 import type { RoleCode } from '@/types/api'
-import type { BatchItemResult, ChangeDirection, EnterpriseAnalysisRow, ProgressRow, SelectedPeriod } from '@/types/revision'
+import type { BatchItemResult, ChangeDirection, EnterpriseAnalysisRow, EnterpriseStepSummary, ProgressRow, SelectedPeriod } from '@/types/revision'
 import type { EnterprisePeriod, SurveyPeriod } from '@/types/report'
 
 const ok = <T>(data: T) => ({ code: 'OK', message: '', traceId: 'mock-revision', data })
@@ -45,17 +46,23 @@ export const mockRevisionProvider: RevisionProvider = {
     const report = selectedPeriod ? (await reports.get(selectedPeriod.periodCode, token)).data : null
     const reportStatus = report?.voided ? 'VOIDED' : report?.status ?? null
     const reportRoute = '/enterprise/reports/' + selectedPeriod?.periodCode
-    let currentStep = 'WAIT_FOR_PERIOD_OR_FILING'
+    let currentStep: EnterpriseStepSummary = 'WAIT_FOR_FILING'
     let nextAction = { route: '/enterprise/profile', label: '查看备案资料', enabled: true }
     if (filingStatus === 'APPROVED') {
-      if (report?.canWrite) {
-        currentStep = report.latestReturn ? 'FIX_RETURNED_REPORT' : report.status === 'DRAFT' ? 'SUBMIT_REPORT' : 'SAVE_DRAFT'
-        nextAction = { route: reportRoute, label: report.latestReturn ? '修改并重新提交' : '打开当期填报', enabled: true }
+      if (!selectedPeriod) {
+        currentStep = 'WAIT_FOR_PERIOD'
+        nextAction = { route: '/enterprise/report/history', label: '等待调查期开放', enabled: false }
+      } else if (reportStatus === 'RETURNED_CITY' || reportStatus === 'RETURNED_PROVINCE') {
+        currentStep = 'FIX_RETURNED_REPORT'
+        nextAction = { route: reportRoute, label: '修改并重新提交', enabled: report?.canWrite === true }
+      } else if (reportStatus === 'SUBMITTED_CITY' || reportStatus === 'SUBMITTED_PROVINCE' || reportStatus === 'APPROVED_PROVINCE') {
+        currentStep = 'WAIT_FOR_REVIEW'
+        nextAction = { route: reportRoute, label: '查看报表', enabled: true }
       } else {
-        currentStep = reportStatus === 'APPROVED_PROVINCE' ? 'COMPLETE'
-          : reportStatus === 'SUBMITTED_CITY' ? 'WAIT_CITY_REVIEW'
-          : reportStatus === 'SUBMITTED_PROVINCE' ? 'WAIT_PROVINCE_REVIEW' : 'WAIT_FOR_PERIOD'
-        nextAction = { route: '/enterprise/report/history', label: selectedPeriod ? '查看历史进度' : '等待调查期开放', enabled: !!selectedPeriod }
+        currentStep = 'COMPLETE_REPORT'
+        nextAction = report?.canWrite
+          ? { route: reportRoute, label: '打开当期填报', enabled: true }
+          : { route: '/enterprise/report/history', label: '查看历史进度', enabled: true }
       }
     }
     return ok({ selectedPeriod, filingStatus, reportStatus, currentStep, nextAction, latestReturnReason: report?.latestReturn?.comment ?? null, visibleNoticeCount: notices.data.total })
@@ -111,6 +118,7 @@ export const mockRevisionProvider: RevisionProvider = {
     }
     const groups = [...cities.values()]
     return ok({
+      nationalReportCard: await mockNationalCard(selectedPeriod?.periodCode, token),
       selectedPeriod, pendingFilingCount, pendingReportCount: rows.filter(r => r.reportStatus === 'SUBMITTED_PROVINCE').length,
       approvedReportCount: rows.filter(r => r.reportStatus === 'APPROVED_PROVINCE').length,
       cityProgress: { submittedCityCount: groups.filter(c => c.forwarded).length, notSubmittedCityCount: groups.filter(c => !c.forwarded).length, items: groups.map(({ forwarded, ...city }) => city) },

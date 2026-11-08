@@ -41,7 +41,7 @@ export const menusByRole: Record<RoleCode, MenuItemConfig[]> = {
     { label: '用户管理', path: '/province/users' },
     { label: '角色管理', path: '/province/roles' },
     { label: '系统监控', path: '/province/monitor' },
-    { label: '国家接口', path: '/integration' },
+    { label: '国家上报', path: '/province/national' },
   ],
 }
 

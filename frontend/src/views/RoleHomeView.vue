@@ -6,6 +6,7 @@ import { reportProvider } from '@/services/report'
 import { ApiError } from '@/services/api'
 import { roleNames, getMenusForRole } from '@/config/navigation'
 import { formatBeijingTime } from '@/utils/filing'
+import { nationalBatchLocation } from '@/utils/national'
 import { windowLabels } from '@/utils/report'
 import { filingProgressLabels, reportProgressLabels } from '@/utils/revision'
 import type { CityOverview, EnterpriseOverview, OverviewLink, ProvinceOverview, FilingProgressStatus, ReportProgressStatus } from '@/types/revision'
@@ -23,12 +24,31 @@ const busy = ref(false)
 const error = ref('')
 const periodError = ref('')
 const ready = ref(false)
-const steps = ['备案', '选择调查期', '保存', '提交', '市审', '省审']
-const stepCodes: Record<string, number> = {
-  FILING: 0, WAIT_FOR_FILING: 0, SUBMIT_FILING: 0, WAIT_FOR_PERIOD_OR_FILING: 0,
-  SELECT_PERIOD: 1, WAIT_FOR_PERIOD: 1, SAVE_DRAFT: 2, FIX_RETURNED_REPORT: 2,
-  SUBMIT_REPORT: 3, WAIT_CITY_REVIEW: 4, CITY_REVIEW: 4, WAIT_PROVINCE_REVIEW: 5, PROVINCE_REVIEW: 5, COMPLETE: 6,
+const steps = ['备案', '选择调查期', '保存报表', '提交报表', '市级审核', '省级审核']
+const reportSteps: Record<string, { step: number; label: string; completed?: boolean }> = {
+  DRAFT: { step: 4, label: '草稿待提交' },
+  RETURNED_CITY: { step: 4, label: '市级退回，待修改并重新提交' },
+  RETURNED_PROVINCE: { step: 4, label: '省级退回，待修改并重新提交' },
+  SUBMITTED_CITY: { step: 5, label: '待市级审核' },
+  SUBMITTED_PROVINCE: { step: 6, label: '待省级审核' },
+  APPROVED_PROVINCE: { step: 6, label: '省级审核通过，六步完成', completed: true },
 }
+const enterpriseProgress = computed<{ step: number | null; label: string; completed?: boolean }>(() => {
+  const overview = enterprise.value
+  if (!overview) {
+    return { step: null, label: busy.value ? '正在读取填报进度' : error.value ? '填报进度读取失败' : '暂无填报进度数据' }
+  }
+  if (overview.filingStatus !== 'APPROVED') return { step: 1, label: '待备案或备案未通过' }
+  if (!overview.selectedPeriod) return { step: 2, label: '待选择调查期' }
+  if (overview.reportStatus === null) return { step: 3, label: '待保存报表' }
+  if (Object.hasOwn(reportSteps, overview.reportStatus)) return reportSteps[overview.reportStatus]!
+  if (overview.reportStatus === 'VOIDED') return { step: null, label: '本期报表已作废' }
+  return { step: null, label: '本期报表状态暂无法识别' }
+})
+const activeStep = computed(() => {
+  const { step, completed } = enterpriseProgress.value
+  return completed ? steps.length : step === null ? 0 : step - 1
+})
 const cityCards = { pendingCity: '待市审', approvedCity: '市审通过', returnedCity: '市级退回', forwardedProvince: '已转报省级', notSubmitted: '本期未上报' } as const
 const cityStatus = { pendingCity: 'SUBMITTED_CITY', returnedCity: 'RETURNED_CITY' } as const
 
@@ -98,15 +118,16 @@ onMounted(async () => {
       </el-form>
       <p v-if="selected">{{ selected.periodLabel }}（{{ selected.periodCode }}） · {{ windowLabels[selected.windowStatus] || selected.windowStatus }} · 截止 {{ formatBeijingTime(selected.deadlineAt) }}（北京时间）</p>
       <el-alert v-else-if="ready" title="暂无调查期" type="info" :closable="false" />
+      <template v-if="role === 'ENTERPRISE'">
+        <el-steps :active="activeStep" :process-status="enterpriseProgress.step === null ? 'wait' : 'process'" finish-status="success" align-center aria-label="企业填报六步进度">
+          <el-step v-for="step in steps" :key="step" :title="step" />
+        </el-steps>
+        <p role="status"><strong v-if="enterpriseProgress.step !== null">第 {{ enterpriseProgress.step }} 步 · </strong>{{ enterpriseProgress.label }}</p>
+      </template>
       <template v-if="enterprise">
         <p>备案进度 {{ filingProgressLabels[enterprise.filingStatus as FilingProgressStatus] || enterprise.filingStatus }}</p>
         <p v-if="selected">本期报表 {{ enterprise.reportStatus ? reportProgressLabels[enterprise.reportStatus as ReportProgressStatus] || enterprise.reportStatus : '本期未上报' }}</p>
-        <el-steps v-if="Object.hasOwn(stepCodes, enterprise.currentStep)" :active="stepCodes[enterprise.currentStep]" finish-status="success" align-center>
-          <el-step v-for="step in steps" :key="step" :title="step" />
-        </el-steps>
-        <p v-else>当前步骤 {{ enterprise.nextAction?.label || enterprise.currentStep }}</p>
         <el-alert v-if="enterprise.latestReturnReason" :title="'退回备注：' + enterprise.latestReturnReason" type="warning" :closable="false" />
-        <p v-if="enterprise.nextAction">下一步 {{ enterprise.nextAction.label }}</p>
         <div class="overview-links">
           <router-link v-if="enterprise.nextAction?.enabled && target(enterprise.nextAction)" :to="target(enterprise.nextAction)!">{{ enterprise.nextAction.label }}</router-link>
           <router-link to="/enterprise/profile">备案资料</router-link>
@@ -136,6 +157,13 @@ onMounted(async () => {
           <div><dt>已转报城市</dt><dd>{{ province.cityProgress.submittedCityCount }}</dd></div>
           <div><dt>未转报城市</dt><dd>{{ province.cityProgress.notSubmittedCityCount }}</dd></div>
         </dl>
+        <el-card v-if="province.nationalReportCard" class="business-card" shadow="never">
+          <template #header><strong>国家上报</strong> <el-tag type="warning">模拟接口 · MOCK</el-tag></template>
+          <p>{{ province.nationalReportCard.label }}<span v-if="province.nationalReportCard.periodCode"> · {{ province.nationalReportCard.periodCode }}</span></p>
+          <router-link :to="nationalBatchLocation(province.nationalReportCard.periodCode, province.nationalReportCard.batchId)">
+            {{ province.nationalReportCard.canRetry ? '查看批次与继续发送' : province.nationalReportCard.canStart ? '进入上报预览' : '查看国家上报' }}
+          </router-link>
+        </el-card>
         <el-table :data="province.cityProgress.items" empty-text="暂无各市上报记录">
           <el-table-column prop="cityName" label="城市" />
           <el-table-column prop="eligibleEnterpriseCount" label="符合填报资格" />

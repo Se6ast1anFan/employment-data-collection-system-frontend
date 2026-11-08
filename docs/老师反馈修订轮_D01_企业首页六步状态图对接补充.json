@@ -1,0 +1,104 @@
+{
+  "issue": "QA-RV-D01",
+  "scope": "企业工作首页六步状态图",
+  "endpoint": {
+    "method": "GET",
+    "path": "/api/v1/enterprise/work-overview",
+    "query": "periodCode 可选；测试指定 P3 时应传 periodCode=P3",
+    "auth": "企业账号的 Bearer 令牌",
+    "responseSource": "响应外层 data 对象"
+  },
+  "changeType": "前端映射修复 + 接口语义澄清；本轮不改后端字段或状态值",
+  "sixSteps": [
+    "备案",
+    "选择调查期",
+    "保存报表",
+    "提交报表",
+    "市级审核",
+    "省级审核"
+  ],
+  "fieldRules": {
+    "filingStatus": "备案是否通过；非 APPROVED 时六步图停在第 1 步，并显示具体备案状态。",
+    "selectedPeriod": "为 null 且备案已通过时停在第 2 步。",
+    "reportStatus": "六步图判断报表阶段的主要字段，须区分待市审、待省审、退回及省审通过。",
+    "currentStep": {
+      "actualValues": [
+        "WAIT_FOR_FILING",
+        "WAIT_FOR_PERIOD",
+        "COMPLETE_REPORT",
+        "FIX_RETURNED_REPORT",
+        "WAIT_FOR_REVIEW"
+      ],
+      "meaning": "下一业务阶段摘要，不是六步图步骤编号。SUBMITTED_CITY、SUBMITTED_PROVINCE 和 APPROVED_PROVINCE 都可能是 WAIT_FOR_REVIEW，不能只凭它画图。"
+    },
+    "nextAction": "只用于首页操作按钮。label=查看报表并不表示六步图当前步骤是查看报表。",
+    "latestReturnReason": "仅作退回原因展示，不参与步骤编号判断。"
+  },
+  "renderRulesInPriorityOrder": [
+    {
+      "when": "filingStatus != APPROVED",
+      "step": 1,
+      "state": "待备案或备案未通过"
+    },
+    {
+      "when": "filingStatus == APPROVED && selectedPeriod == null",
+      "step": 2,
+      "state": "待选择调查期"
+    },
+    {
+      "when": "reportStatus == null",
+      "step": 3,
+      "state": "待保存报表"
+    },
+    {
+      "when": "reportStatus == DRAFT",
+      "step": 4,
+      "state": "草稿待提交"
+    },
+    {
+      "when": "reportStatus == RETURNED_CITY || reportStatus == RETURNED_PROVINCE",
+      "step": 4,
+      "state": "退回后待修改并重新提交"
+    },
+    {
+      "when": "reportStatus == SUBMITTED_CITY",
+      "step": 5,
+      "state": "待市级审核"
+    },
+    {
+      "when": "reportStatus == SUBMITTED_PROVINCE",
+      "step": 6,
+      "state": "待省级审核"
+    },
+    {
+      "when": "reportStatus == APPROVED_PROVINCE",
+      "step": 6,
+      "state": "省级审核通过，六步完成"
+    }
+  ],
+  "d01Example": {
+    "request": "GET /api/v1/enterprise/work-overview?periodCode=P3",
+    "relevantResponseFields": {
+      "selectedPeriod": {
+        "periodCode": "P3"
+      },
+      "filingStatus": "APPROVED",
+      "reportStatus": "SUBMITTED_PROVINCE",
+      "currentStep": "WAIT_FOR_REVIEW",
+      "nextAction": {
+        "label": "查看报表",
+        "route": "/enterprise/reports/P3",
+        "enabled": true
+      }
+    },
+    "expectedPage": "始终显示六个节点，突出第 6 步省级审核并标注待审核；查看报表只作为按钮文案。"
+  },
+  "frontendAcceptance": [
+    "待市审 SUBMITTED_CITY：显示第 5 步待市审和六个节点。",
+    "待省审 SUBMITTED_PROVINCE：显示第 6 步待省审和六个节点，不退化为当前步骤 查看报表。",
+    "市级或省级退回：显示第 4 步重新提交，保留退回原因和按钮。",
+    "省审通过 APPROVED_PROVINCE：第 6 步显示完成，不写待审核。",
+    "接口请求失败时显示错误状态；不要把错误、空数据或未知状态折叠成只剩一个按钮。"
+  ],
+  "contractCorrection": "主接口约定文件已将空状态示例中的不存在值 WAIT_FOR_PERIOD_OR_FILING 改为实际值 WAIT_FOR_FILING，并为 currentStep 补齐实际枚举。"
+}

@@ -623,7 +623,33 @@
             "$ref": "#/components/parameters/optionalPeriodCode"
           }
         ],
-        "description": "不传 periodCode 时返回当前开放或最近一期；无任何调查期时 selectedPeriod 为 null。备案、当期报表、退回原因、下一步操作均由服务端判断。",
+        "description": "企业账号通过 Bearer 令牌读取响应 data。不传 periodCode 时返回当前开放或最近一期；无调查期时 selectedPeriod 为 null。六步图按备案状态、所选期次和报表状态依次判断。currentStep 是业务阶段摘要，nextAction 只用于操作按钮，latestReturnReason 仅展示退回原因。",
+        "x-enterpriseWorkflowD01": {
+          "issue": "QA-RV-D01",
+          "source": "老师反馈修订轮_D01_企业首页六步状态图对接补充.json",
+          "steps": ["备案", "选择调查期", "保存报表", "提交报表", "市级审核", "省级审核"],
+          "rulesInPriorityOrder": [
+            { "when": "filingStatus != APPROVED", "step": 1, "state": "待备案或备案未通过" },
+            { "when": "selectedPeriod == null", "step": 2, "state": "待选择调查期" },
+            { "when": "reportStatus == null", "step": 3, "state": "待保存报表" },
+            { "when": "reportStatus == DRAFT", "step": 4, "state": "草稿待提交" },
+            { "when": "reportStatus == RETURNED_CITY || reportStatus == RETURNED_PROVINCE", "step": 4, "state": "待修改并重新提交" },
+            { "when": "reportStatus == SUBMITTED_CITY", "step": 5, "state": "待市级审核" },
+            { "when": "reportStatus == SUBMITTED_PROVINCE", "step": 6, "state": "待省级审核" },
+            { "when": "reportStatus == APPROVED_PROVINCE", "step": 6, "state": "省级审核通过，六步完成" }
+          ],
+          "example": {
+            "query": { "periodCode": "P3" },
+            "dataExcerpt": {
+              "selectedPeriod": { "periodCode": "P3" },
+              "filingStatus": "APPROVED",
+              "reportStatus": "SUBMITTED_PROVINCE",
+              "currentStep": "WAIT_FOR_REVIEW",
+              "nextAction": { "label": "查看报表", "route": "/enterprise/reports/P3", "enabled": true }
+            },
+            "expectedPage": "显示六个节点，突出第 6 步省级审核并标为待审核。查看报表是独立操作。"
+          }
+        },
         "responses": {
           "200": {
             "description": "企业工作概览",
@@ -674,7 +700,7 @@
           "filingStatus": "NO_FILING",
           "reportStatus": null,
           "latestReturnReason": null,
-          "currentStep": "WAIT_FOR_PERIOD_OR_FILING",
+          "currentStep": "WAIT_FOR_FILING",
           "nextAction": {
             "label": "完善备案",
             "route": "/enterprise/filing",
@@ -2150,7 +2176,9 @@
             ]
           },
           "currentStep": {
-            "type": "string"
+            "type": "string",
+            "enum": ["WAIT_FOR_FILING", "WAIT_FOR_PERIOD", "COMPLETE_REPORT", "FIX_RETURNED_REPORT", "WAIT_FOR_REVIEW"],
+            "description": "下一业务阶段摘要。待市审、待省审、省审通过均可返回 WAIT_FOR_REVIEW，六步进度以 reportStatus 等业务字段判断。"
           },
           "nextAction": {
             "$ref": "#/components/schemas/NextAction"

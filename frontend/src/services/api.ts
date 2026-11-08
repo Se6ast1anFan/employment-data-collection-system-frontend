@@ -10,6 +10,11 @@ export class ApiError extends Error {
     public readonly code = 'REQUEST_FAILED',
     public readonly traceId = '',
     public readonly fieldErrors: Record<string, string> = {},
+    public readonly data?: {
+      reasonCode?: string
+      existingBatchId?: string
+      blockers?: { code: string; message: string }[]
+    },
   ) {
     super(message)
   }
@@ -33,13 +38,14 @@ function dispatchAuthError(status: number) {
 
 function toApiError(status: number, payload: ApiResponse<unknown> | null, fallback: string) {
   dispatchAuthError(status)
-  const data = payload?.data as FieldErrorData | null | undefined
+  const data = payload?.data as (FieldErrorData & NonNullable<ApiError['data']>) | null | undefined
   return new ApiError(
     status,
     payload?.message || fallback,
     payload?.code,
     payload?.traceId,
     data?.fieldErrors ?? {},
+    data ?? undefined,
   )
 }
 
