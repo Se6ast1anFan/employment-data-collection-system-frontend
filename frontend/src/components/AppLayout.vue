@@ -28,7 +28,7 @@ const groupPaths = {
   PROVINCE: [
     ['enterprise-accounts/new', 'filings', 'periods'],
     ['reports', 'enterprise-progress', 'accounts'],
-    ['summary', 'analysis', 'national'],
+    ['summary', 'analysis', 'olap', 'national'],
     ['notices', 'users', 'roles', 'monitor'],
   ],
 }

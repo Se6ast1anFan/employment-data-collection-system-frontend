@@ -196,6 +196,7 @@ onMounted(async () => {
           <template v-for="entry in province.entries" :key="entry.route"><router-link v-if="target(entry)" :to="target(entry)!">{{ entry.label }}</router-link></template>
           <router-link :to="{path:'/province/summary',query:{periodCode:selected?.periodCode}}">数据汇总</router-link>
           <router-link :to="{path:'/province/analysis',query:{periodCode:selected?.periodCode}}">图表分析</router-link>
+          <router-link :to="{path:'/province/olap',query:{periodCode:selected?.periodCode}}">多维分析</router-link>
         </div>
         </section>
         <section v-if="province.nationalReportCard" class="overview-panel">

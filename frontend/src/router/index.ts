@@ -72,6 +72,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/province/summary', component: () => import('@/views/ProvinceSummaryView.vue'), meta: { title: '数据汇总', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/data/reports/:reportId', component: () => import('@/views/ProvinceCorrectionView.vue'), meta: { title: '修订与追溯', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/analysis', component: () => import('@/views/ProvinceAnalysisView.vue'), meta: { title: '就业数据分析', requiresAuth: true, roles: ['PROVINCE'] } },
+  { path: '/province/olap', component: () => import('@/views/ProvinceOlapView.vue'), meta: { title: '多维分析', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/enterprise-progress', component: () => import('@/views/ProvinceProgressView.vue'), meta: { title: '企业进度查询', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/accounts', component: () => import('@/views/ProvinceAccountsView.vue'), meta: { title: '全省账号查询', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知管理', requiresAuth: true, roles: ['PROVINCE'] } },

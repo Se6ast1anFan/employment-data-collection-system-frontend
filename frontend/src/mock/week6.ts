@@ -2,12 +2,14 @@ import { getMockUserForToken } from '@/mock/auth'
 import { managementMockState as state } from '@/mock/report'
 import { managementMockFilings as filings } from '@/mock/filing'
 import { mockManagementProvider } from '@/mock/management'
+import { chartDemoFacts, chartDemoPeriods } from '@/mock/chartFixtures'
 import { getMockRegionInfo, mockCityOrgId } from '@/mock/system'
 import { ApiError } from '@/services/api'
 import { noticeErrors, orderedPeriods, roundedPercent } from '@/utils/week6'
 import type { AnalysisProvider, AnalysisQuery, NoticeProvider } from '@/services/week6'
 import type { AnalysisFilters, SixMetrics, NoticeDetail, NoticeCreate } from '@/types/week6'
 import type { EffectiveReportRow, EnterpriseInfoRow } from '@/types/management'
+import type { EnterpriseAnalysisQuery } from '@/types/revision'
 const ok = <T>(data:T) => ({code:'OK',message:'',data:structuredClone(data),traceId:'mock-w6'})
 function fail(status:number,message:string,fields:Record<string,string>={}):never {
   throw new ApiError(status,message,'MOCK_ERROR','mock-w6',fields)
@@ -59,17 +61,46 @@ export async function sample(code:string,q:AnalysisQuery,t:string) {
     return [{row,info}]
   })
 }
-export function metrics(rows:Awaited<ReturnType<typeof sample>>):SixMetrics {
+type ChartSample = {
+  row: { cityOrgId: string; cityName: string; regionCode: string; effectiveForm: Pick<EffectiveReportRow['effectiveForm'], 'baselineEmploymentCount' | 'periodEmploymentCount'> }
+  info: Pick<EnterpriseInfoRow, 'filingSource'>
+}
+
+function demoSample(code: string, q: AnalysisQuery, token: string) {
+  const current = user(token, true)
+  if (current.orgId !== '100') fail(404, '调查期不在本省')
+  validateFilters(q)
+  return chartDemoFacts(code, q) ?? fail(400, '调查期不存在')
+}
+
+async function chartSample(code: string, q: AnalysisQuery, token: string): Promise<ChartSample[]> {
+  if (!chartDemoPeriods.some(item => item.code === code)) return sample(code, q, token)
+  return demoSample(code, q, token).map(({ report, filingSource }) => ({
+    row: { cityOrgId: report.cityCode === 'DEMO_C' ? '201' : report.cityCode, cityName: report.cityName, regionCode: report.cityCode, effectiveForm: report },
+    info: { filingSource },
+  }))
+}
+
+export function mockChartEnterprisePage({ periodCode, page, size, ...query }: EnterpriseAnalysisQuery, token: string) {
+  const rows = demoSample(periodCode, query, token)
+  const items = rows.filter(({ report }) => !query.changeDirection || report.changeDirection === query.changeDirection).map(({ report }) => report)
+  return { periodCode, page, size, total: items.length, items: items.slice(page * size, (page + 1) * size) }
+}
+
+export function metrics(rows: ChartSample[]):SixMetrics {
   const baseline=rows.reduce((n,x)=>n+x.row.effectiveForm.baselineEmploymentCount,0)
   const current=rows.reduce((n,x)=>n+x.row.effectiveForm.periodEmploymentCount,0)
   const filingSourceCounts={SNAPSHOT_VERSION:0,CURRENT_FALLBACK:0,UNAVAILABLE:0}
   rows.forEach(x=>filingSourceCounts[x.info.filingSource]++)
   return {enterpriseCount:rows.length,baselineEmploymentTotal:baseline,periodEmploymentTotal:current,netChange:current-baseline,reductionTotal:rows.reduce((n,x)=>n+Math.max(x.row.effectiveForm.baselineEmploymentCount-x.row.effectiveForm.periodEmploymentCount,0),0),changePercent:rows.length?roundedPercent(current-baseline,baseline):null,filingSourceCounts}
 }
-function period(code:string) {return state.periods.find(p=>p.code===code) ?? fail(400,'调查期不存在')}
-export const mockAnalysisProvider:AnalysisProvider={
+function createMockAnalysisProvider(includeDemos: boolean): AnalysisProvider {
+const availablePeriods = () => includeDemos ? [...state.periods, ...chartDemoPeriods] : state.periods
+const period = (code: string) => availablePeriods().find(p => p.code === code) ?? fail(400, '调查期不存在')
+const readSample = includeDemos ? chartSample : sample
+return {
   async cities(q,t) {
-    const rows=await sample(q.periodCode,{regionCode:q.regionCode},t)
+    const rows=await readSample(q.periodCode,{regionCode:q.regionCode},t)
     const grouped=new Map<string,typeof rows>()
     rows.forEach(x=>grouped.set(x.row.cityOrgId,[...(grouped.get(x.row.cityOrgId)??[]),x]))
     const cities=[...grouped].map(([id,list])=>{
@@ -83,7 +114,7 @@ export const mockAnalysisProvider:AnalysisProvider={
     if(q.firstPeriodCode===q.secondPeriodCode) fail(400,'请选择两个不同调查期',{secondPeriodCode:'两期必须不同'})
     const periods=[]
     for(const [i,code] of [q.firstPeriodCode,q.secondPeriodCode].entries()) {
-      const rows=await sample(code,q,t), p=period(code)
+      const rows=await readSample(code,q,t), p=period(code)
       periods.push({position:i===0?'FIRST' as const:'SECOND' as const,periodCode:code,periodLabel:p.label,startAt:p.startAt,metrics:metrics(rows)})
     }
     return ok({firstPeriodCode:q.firstPeriodCode,secondPeriodCode:q.secondPeriodCode,filters:filters(q),sampleRule,periods})
@@ -91,13 +122,16 @@ export const mockAnalysisProvider:AnalysisProvider={
   async trend(q,t) {
     const u=user(t,true)
     if(u.orgId!=='100') fail(400,'调查期不在本省')
-    const sorted=orderedPeriods(state.periods.filter(p=>!p.legacy)), indexes=q.periodCodes.map(c=>sorted.findIndex(p=>p.code===c))
+    const sorted=orderedPeriods(availablePeriods().filter(p=>!p.legacy)), indexes=q.periodCodes.map(c=>sorted.findIndex(p=>p.code===c))
     if(indexes.length<2||indexes.length>24||indexes.some((n,i)=>n<0||(i>0&&n!==indexes[i-1]!+1))) fail(400,'请选择升序相邻的 2 至 24 个不同期次',{periodCodes:'期次须连续且按时间升序'})
     const points=[]
-    for(const code of q.periodCodes){const p=period(code), rows=await sample(code,q,t);points.push({periodCode:code,periodLabel:p.label,startAt:p.startAt,hasSample:rows.length>0,metrics:rows.length?metrics(rows):null})}
+    for(const code of q.periodCodes){const p=period(code), rows=await readSample(code,q,t);points.push({periodCode:code,periodLabel:p.label,startAt:p.startAt,hasSample:rows.length>0,metrics:rows.length?metrics(rows):null})}
     return ok({periodCodes:q.periodCodes,filters:filters(q),sampleRule,points})
   },
 }
+}
+export const mockAnalysisProvider = createMockAnalysisProvider(false)
+export const mockChartAnalysisProvider = createMockAnalysisProvider(true)
 interface StoredNotice {detail:NoticeDetail;deleted:boolean;events:{action:'CREATE'|'UPDATE'|'DELETE';actor:string;at:string;version:number}[]}
 const notices=new Map<string,StoredNotice>();let nextId=1
 function canReadNotice(d: NoticeDetail, t: string) {

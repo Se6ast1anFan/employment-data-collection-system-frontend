@@ -24,7 +24,7 @@ export function contiguousCodes<T extends {code:string;startAt:string}>(periods:
   if(start<0||end<=start||end-start+1>24) throw new Error('请选择按时间相邻的 2 至 24 个调查期，结束期必须晚于起始期')
   return sorted.slice(start,end+1).map(p=>p.code)
 }
-// 只用于 Mock 指标，正式页面直接展示后端结果；负数亦按 HALF_UP 远离零舍入。
+// 百分比按 HALF_UP 保留两位小数，负数恰逢中点时向远离零舍入。
 export function roundedPercent(numerator:number,denominator:number):number|null {
   if(!denominator) return null
   const n=BigInt(numerator)*10000n, d=BigInt(denominator), absolute=n<0n?-n:n

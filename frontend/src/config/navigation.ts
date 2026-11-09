@@ -35,6 +35,7 @@ export const menusByRole: Record<RoleCode, MenuItemConfig[]> = {
     { label: '报表管理', path: '/province/reports' },
     { label: '数据汇总', path: '/province/summary' },
     { label: '图表分析', path: '/province/analysis' },
+    { label: '多维分析', path: '/province/olap' },
     { label: '全省账号查询', path: '/province/accounts' },
     { label: '企业进度查询', path: '/province/enterprise-progress' },
     { label: '通知管理', path: '/province/notices' },
