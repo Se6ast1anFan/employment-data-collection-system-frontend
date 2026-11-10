@@ -2,8 +2,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { nationalProvider } from '@/services/national'
-import { nationalBatchLocation, nationalLockMessage } from '@/utils/national'
+import { getNationalV2 } from '@/services/nationalV2'
+import { hasFrozenRealReport, nationalBatchLocation, nationalLockMessage } from '@/utils/national'
 import { managementProvider as api } from '@/services/management'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError } from '@/services/api'
@@ -33,12 +33,13 @@ async function load() {
   reason.value = voidReason.value = ''
   errors.value = {}
   if (d.voided || readonlyView.value) return
-  // V1 的追溯接口未增加锁定字段。用冻结批次明细确认本报表是否入批。
+  // 用冻结批次确认真实入批记录，代填来源报表不属于本期批次。
   try {
+    const nationalProvider = await getNationalV2()
     const { existingBatch } = (await nationalProvider.readiness(d.periodCode, auth.token!)).data
     if (!existingBatch || generation !== detailGeneration) return
     const batch = (await nationalProvider.detail(existingBatch.batchId, auth.token!)).data
-    if (generation !== detailGeneration || !batch.payload.enterprises.some(row => row.reportId === d.reportId)) return
+    if (generation !== detailGeneration || !hasFrozenRealReport(batch, d.reportId)) return
     lockedReports.add(d.reportId)
     lockedBatchId.value = batch.batchId
   } catch {
@@ -59,6 +60,7 @@ async function run(fn: () => Promise<void>, mutationReportId?: string) {
       if (e.status === 409 && mutationReportId) {
         if (e.data?.reasonCode === 'LOCKED_BY_NATIONAL_BATCH') {
           lockedReports.add(mutationReportId)
+          lockedBatchId.value = e.data.existingBatchId ?? ''
           error.value = nationalLockMessage
         } else {
           try { await load(); error.value = '状态或版本已变化，已重新读取，请核对后再操作' }

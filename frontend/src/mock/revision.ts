@@ -1,4 +1,6 @@
 import { mockNationalCard } from '@/mock/national'
+import { addCoverage, emptyCoverage, mockCoverage, mockCoverageRow } from '@/mock/midtermCoverage'
+import type { Coverage, HomeState } from '@/types/midterm'
 import { getMockUserForToken, managementMockAccounts } from '@/mock/auth'
 import { getMockRegionInfo, mockCityOrgId } from '@/mock/system'
 import { managementMockFilings } from '@/mock/filing'
@@ -65,7 +67,11 @@ export const mockRevisionProvider: RevisionProvider = {
           : { route: '/enterprise/report/history', label: '查看历史进度', enabled: true }
       }
     }
-    return ok({ selectedPeriod, filingStatus, reportStatus, currentStep, nextAction, latestReturnReason: report?.latestReturn?.comment ?? null, visibleNoticeCount: notices.data.total })
+    const homeState: HomeState = reportStatus === 'RETURNED_CITY' || reportStatus === 'RETURNED_PROVINCE' ? 'RETURNED'
+      : report && !report.voided && report.submissionVersion > 0 ? 'SUBMITTED' : reportStatus === 'DRAFT' ? 'DRAFT_SAVED' : 'NOT_SAVED'
+    return ok({ selectedPeriod, filingStatus, reportStatus, currentStep, nextAction, latestReturnReason: report?.latestReturn?.comment ?? null, visibleNoticeCount: notices.data.total,
+      homeState, homePeriod: selectedPeriod, homeReturnReason: homeState === 'RETURNED' ? report?.latestReturn?.comment ?? null : null,
+      homeNextAction: { ...nextAction, enabled: !!selectedPeriod && nextAction.enabled } })
   },
   async cityOverview(code, token) {
     const user = session(token, 'CITY')
@@ -92,7 +98,7 @@ export const mockRevisionProvider: RevisionProvider = {
       if (status === 'NOT_SUBMITTED' || status === 'DRAFT') counts.notSubmitted++
     }
     return ok({
-      selectedPeriod, reportCounts: counts,
+      selectedPeriod, reportCounts: counts, ...mockCoverage(selectedPeriod?.periodCode, user.orgId),
       noticeEntry: { label: '通知管理', route: '/city/notices' },
       nextAction: { label: '审核待办', route: '/city/reports', enabled: !!selectedPeriod },
     })
@@ -107,18 +113,19 @@ export const mockRevisionProvider: RevisionProvider = {
       rows.push(...data.items)
       if ((page + 1) * data.size >= data.total) break
     }
-    const cities = new Map<string, { cityCode: string; cityName: string; eligibleEnterpriseCount: number; submittedEnterpriseCount: number; notSubmittedEnterpriseCount: number; forwarded: boolean }>()
+    const cities = new Map<string, Coverage & { cityCode: string; cityName: string; submittedEnterpriseCount: number; notSubmittedEnterpriseCount: number; forwarded: boolean }>()
+    const period = state.periods.find(item => item.code === selectedPeriod?.periodCode)
     for (const row of rows) {
-      const city = cities.get(row.cityCode) ?? { cityCode: row.cityCode, cityName: row.cityName, eligibleEnterpriseCount: 0, submittedEnterpriseCount: 0, notSubmittedEnterpriseCount: 0, forwarded: false }
-      if (row.filingStatus === 'APPROVED') city.eligibleEnterpriseCount++
+      const city = cities.get(row.cityCode) ?? { cityCode: row.cityCode, cityName: row.cityName, ...emptyCoverage(), submittedEnterpriseCount: 0, notSubmittedEnterpriseCount: 0, forwarded: false }
+      if (period) addCoverage(city, mockCoverageRow(row.enterpriseOrgId, period).coverage)
       if (row.reportStatus === 'DRAFT' || row.reportStatus === 'NOT_SUBMITTED') city.notSubmittedEnterpriseCount++
-      else if (row.reportStatus !== 'VOIDED') city.submittedEnterpriseCount++
-      if (['SUBMITTED_PROVINCE', 'RETURNED_PROVINCE', 'APPROVED_PROVINCE'].includes(row.reportStatus)) city.forwarded = true
+      if (['SUBMITTED_PROVINCE', 'RETURNED_PROVINCE', 'APPROVED_PROVINCE'].includes(row.reportStatus)) { city.forwarded = true; city.submittedEnterpriseCount++ }
       cities.set(row.cityCode, city)
     }
     const groups = [...cities.values()]
     return ok({
       nationalReportCard: await mockNationalCard(selectedPeriod?.periodCode, token),
+      provinceTotals: groups.reduce(addCoverage, emptyCoverage()),
       selectedPeriod, pendingFilingCount, pendingReportCount: rows.filter(r => r.reportStatus === 'SUBMITTED_PROVINCE').length,
       approvedReportCount: rows.filter(r => r.reportStatus === 'APPROVED_PROVINCE').length,
       cityProgress: { submittedCityCount: groups.filter(c => c.forwarded).length, notSubmittedCityCount: groups.filter(c => !c.forwarded).length, items: groups.map(({ forwarded, ...city }) => city) },
@@ -128,15 +135,20 @@ export const mockRevisionProvider: RevisionProvider = {
   async progress(q, token) {
     session(token, 'PROVINCE')
     selectPeriod(q.periodCode, state.periods)
+    const period = state.periods.find(item => item.code === q.periodCode)!
+    const coverageSummary = emptyCoverage()
     const orgIds = new Map(managementMockAccounts().map(({ user }) => [user.id, user.orgId]))
     const all: ProgressRow[] = []
     for (let page = 0; ; page++) {
-      const data = (await mockManagementProvider.accounts({ page, size: 100, userType: 'ENTERPRISE', cityCode: q.cityCode }, token)).data
+      const data = (await mockManagementProvider.accounts({ page, size: 100, userType: 'ENTERPRISE', cityCode: q.cityCode === '530100' ? 'DEMO_C' : q.cityCode }, token)).data
       for (const account of data.items) {
         const orgId = orgIds.get(account.userId)!
         const report = state.reports.get(orgId + ':' + q.periodCode)
+        const { coverage, ...attributes } = mockCoverageRow(orgId, period)
+        addCoverage(coverageSummary, coverage)
         all.push({
-          enterpriseOrgId: orgId, enterpriseName: account.unitName, cityCode: account.cityCode ?? '', cityName: account.cityName ?? '—',
+          enterpriseOrgId: orgId, enterpriseName: account.unitName, cityCode: account.cityCode === 'DEMO_C' ? '530100' : account.cityCode ?? '', cityName: account.cityName ?? '—',
+          ...attributes,
           filingStatus: account.dataStatus ?? 'NO_FILING', reportStatus: reportState(orgId, q.periodCode),
           reportId: report?.reportId ?? null, reportVoided: report?.voided ?? false, lastSubmittedAt: report?.submittedAt ?? null,
         })
@@ -149,7 +161,7 @@ export const mockRevisionProvider: RevisionProvider = {
       summary.reportCounts[row.reportStatus] = (summary.reportCounts[row.reportStatus] ?? 0) + 1
     }
     const matching = all.filter(row => (!q.filingStatus || q.filingStatus === row.filingStatus) && (!q.reportStatus || reportFilterStates[q.reportStatus].includes(row.reportStatus)))
-    return ok({ periodCode: q.periodCode, summary, items: matching.slice(q.page * q.size, (q.page + 1) * q.size), total: matching.length, page: q.page, size: q.size })
+    return ok({ periodCode: q.periodCode, summary, coverageSummary, items: matching.slice(q.page * q.size, (q.page + 1) * q.size), total: matching.length, page: q.page, size: q.size })
   },
   async batchSubmit(items, token) {
     session(token, 'ENTERPRISE')

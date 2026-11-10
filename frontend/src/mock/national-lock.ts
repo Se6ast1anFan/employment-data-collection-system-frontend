@@ -5,7 +5,8 @@ import { nationalLockMessage } from '@/utils/national'
 export const mockNationalLocks = new Map<string, string>()
 
 export function rejectMockNationalMutation(reportId: string) {
-  if (mockNationalLocks.has(reportId)) {
-    throw new ApiError(409, nationalLockMessage, 'CONFLICT', 'mock-national', {}, { reasonCode: 'LOCKED_BY_NATIONAL_BATCH' })
+  const existingBatchId = mockNationalLocks.get(reportId)
+  if (existingBatchId) {
+    throw new ApiError(409, nationalLockMessage, 'CONFLICT', 'mock-national', {}, { reasonCode: 'LOCKED_BY_NATIONAL_BATCH', existingBatchId })
   }
 }

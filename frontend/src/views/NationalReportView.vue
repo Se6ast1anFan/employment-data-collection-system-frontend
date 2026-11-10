@@ -2,378 +2,396 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { nationalProvider as api } from '@/services/national'
+import { apiMode } from '@/services/auth'
+import { getNationalV2 } from '@/services/nationalV2'
 import { ApiError } from '@/services/api'
 import { formatBeijingTime } from '@/utils/filing'
-import { batchStatusLabels, canRetryNational, nationalInFlight } from '@/utils/national'
 import { orderedPeriods } from '@/utils/week6'
-import NationalPayloadPreview from '@/components/NationalPayloadPreview.vue'
 import type { SurveyPeriod } from '@/types/report'
-import type { BatchStatus, NationalBatchDetail, NationalBatchQuery, NationalBatchSummary, NationalReadiness } from '@/types/national'
+import type { BatchDetailV2, BatchStatusV2, BatchSummaryV2, ReadinessV2 } from '@/types/midterm'
 
-const auth = useAuthStore()
 const route = useRoute()
+const auth = useAuthStore()
+const token = () => auth.token!
 const periods = ref<SurveyPeriod[]>([])
-const statuses = reactive<Record<string, NationalReadiness>>({})
-const statusErrors = reactive<Record<string, string>>({})
+const periodCode = ref('')
+const readiness = ref<ReadinessV2>()
 const loadingPeriods = ref(false)
-const periodError = ref('')
-const selectedCode = ref('')
-const preview = computed(() => statuses[selectedCode.value])
-const confirming = ref<NationalReadiness>()
-const confirmOpen = ref(false)
-const acknowledgeMissing = ref(false)
-const creating = ref(false)
-const creationError = ref('')
-const creationBlockers = ref<string[]>([])
 const loadingPreview = ref(false)
-
-const batches = ref<NationalBatchSummary[]>([])
-const total = ref(0)
+const periodError = ref('')
+const previewError = ref('')
+const actionError = ref('')
+const actionDetails = ref<string[]>([])
+const actionMessage = ref('')
+const action = ref<'generate' | 'revoke' | 'freeze'>()
+const acting = ref(false)
+const confirming = computed({ get: () => !!action.value, set: open => { if (!open && !acting.value) action.value = undefined } })
+const actionLabels = { generate: '生成代填', revoke: '撤销代填', freeze: '确认冻结并排队' }
+const statusLabels: Record<BatchStatusV2, string> = { QUEUED: '已冻结，等待发送', SENDING: '分片发送中', ASSEMBLING: '模拟端组装中', MOCK_ACCEPTED: '模拟已接收', SEND_FAILED: '发送失败' }
+const inFlight = (status: BatchStatusV2) => ['QUEUED', 'SENDING', 'ASSEMBLING'].includes(status)
+const formatLabel = (item: { payloadFormat?: string; mode?: string }) => item.payloadFormat === 'XML' || item.mode === 'MOCK_QUEUE'
+  ? 'XML / 消息队列 / 内部模拟' : 'JSON / 内部模拟'
+const canGenerate = computed(() => {
+  const data = readiness.value
+  return !!data && !data.existingBatch && !data.noRealSource.length && !!(data.fillable.length || data.proxyItems.length)
+    && data.blockers.every(item => item.code === 'UNCOVERED_ENTERPRISE')
+})
+const eligible = computed(() => readiness.value?.counts.eligibleCount ?? 0)
+const awaitingReview = computed(() => {
+  const c = readiness.value?.counts
+  return c ? c.pendingCityCount + c.pendingProvinceCount + c.returnedCityCount + c.returnedProvinceCount : 0
+})
+const reportLink = (id: string) => ({ path: '/province/data/reports/' + encodeURIComponent(id), query: { readonly: '1' } })
+const batchList = ref<BatchSummaryV2[]>([])
 const page = ref(1)
+const total = ref(0)
 const historyBusy = ref(false)
 const historyError = ref('')
-const historyFilters = reactive<{ periodCode?: string; status?: BatchStatus }>({})
-let historyQuery: NationalBatchQuery = { page: 0, size: 20 }
-let historyRequest = 0
-
+const filters = reactive<{ periodCode?: string; status?: BatchStatusV2 }>({})
+let applied = { ...filters }
+let previewRequest = 0, historyRequest = 0
+const drawer = ref(false)
 const batchId = ref('')
-const drawerOpen = ref(false)
-const batch = ref<NationalBatchDetail>()
+const batch = ref<BatchDetailV2>()
 const detailBusy = ref(false)
-const retrying = ref(false)
 const detailError = ref('')
-const retryError = ref('')
+const retrying = ref(false)
 const pollPaused = ref(false)
-let detailRequest: AbortController | undefined
-let pollTimer: ReturnType<typeof setTimeout> | undefined
-let pollCount = 0
+const canRetry = computed(() => batch.value?.payloadFormat === 'XML' && ['QUEUED', 'SEND_FAILED'].includes(batch.value.status))
+let controller: AbortController | undefined
+let timer: ReturnType<typeof setTimeout> | undefined
+let polls = 0
 let disposed = false
 
-const pendingCount = (data: NationalReadiness) => {
-  const c = data.counts
-  return c.pendingCityCount + c.pendingProvinceCount + c.returnedCityCount + c.returnedProvinceCount
-}
-
-async function fetchReadiness(code: string) {
-  delete statusErrors[code]
+async function loadReadiness(code: string) {
+  const id = ++previewRequest
+  readiness.value = undefined
+  previewError.value = ''
+  if (!code) { loadingPreview.value = false; return }
+  loadingPreview.value = true
   try {
-    statuses[code] = (await api.readiness(code, auth.token!)).data
-  } catch (e) {
-    delete statuses[code]
-    statusErrors[code] = (e as Error).message
-  }
+    const data = (await (await getNationalV2()).readiness(code, token())).data
+    if (!Number.isInteger(data.proxyVersion) || !data.previewSummary || !Array.isArray(data.proxyItems)) throw new Error('当前服务尚未返回 V2 上报门槛，请确认服务已升级。')
+    if (id === previewRequest && !disposed) readiness.value = data
+  } catch (cause) {
+    if (id === previewRequest && !disposed) previewError.value = (cause as Error).message
+  } finally { if (id === previewRequest) loadingPreview.value = false }
 }
 async function loadPeriods() {
-  if (loadingPeriods.value || creating.value || loadingPreview.value) return
+  if (loadingPeriods.value || acting.value) return
   loadingPeriods.value = true
   periodError.value = ''
   try {
-    const items = (await api.periods(auth.token!)).data.items
-    periods.value = orderedPeriods(items).reverse()
-    if (selectedCode.value && !items.some(period => period.code === selectedCode.value)) selectedCode.value = ''
-    if (!selectedCode.value) selectedCode.value = periods.value.find(period => !period.legacy)?.code ?? periods.value[0]?.code ?? ''
-    const codes = [...new Set([selectedCode.value, ...periods.value.map(period => period.code)].filter(Boolean))]
-    let cursor = 0
-    await Promise.all(Array.from({ length: Math.min(4, codes.length) }, async () => {
-      while (!disposed && cursor < codes.length) await fetchReadiness(codes[cursor++]!)
-    }))
-  } catch (e) { periodError.value = (e as Error).message }
+    const { data } = await (await getNationalV2()).periods(token())
+    periods.value = orderedPeriods(data.items).reverse()
+    if (!periods.value.some(item => item.code === periodCode.value)) {
+      const demo = apiMode === 'mock' ? periods.value.find(item => item.code === 'MOCK_V2_CLOSED') : undefined
+      periodCode.value = (demo ?? periods.value.find(item => !item.legacy && item.windowStatus === 'CLOSED') ?? periods.value[0])?.code ?? ''
+    }
+    await loadReadiness(periodCode.value)
+  } catch (cause) { periodError.value = (cause as Error).message }
   finally { loadingPeriods.value = false }
 }
-function selectPeriod(code: string) {
-  selectedCode.value = code
-  creationError.value = ''
-  creationBlockers.value = []
-  if (!loadingPeriods.value) void refreshPreview()
+function pickPeriod() {
+  actionMessage.value = actionError.value = ''
+  actionDetails.value = []
+  void loadReadiness(periodCode.value)
 }
-async function refreshPreview() {
-  if (!selectedCode.value || loadingPreview.value || loadingPeriods.value) return
-  loadingPreview.value = true
-  try { await fetchReadiness(selectedCode.value) }
-  finally { loadingPreview.value = false }
-}
-async function loadHistory(requestedPage = page.value) {
-  const seq = ++historyRequest
+async function loadHistory(number = page.value) {
+  const id = ++historyRequest
   historyBusy.value = true
   historyError.value = ''
   try {
-    const data = (await api.list({ ...historyQuery, page: requestedPage - 1 }, auth.token!)).data
-    if (disposed || seq !== historyRequest) return
-    const last = Math.max(1, Math.ceil(data.total / historyQuery.size))
-    if (requestedPage > last) { await loadHistory(last); return }
+    const { data } = await (await getNationalV2()).list({ ...applied, page: number - 1, size: 20 }, token())
+    if (id !== historyRequest || disposed) return
+    const last = Math.max(1, Math.ceil(data.total / 20))
+    if (number > last) { await loadHistory(last); return }
+    batchList.value = data.items
     page.value = data.page + 1
     total.value = data.total
-    batches.value = data.items
-  } catch (e) {
-    if (disposed || seq !== historyRequest) return
-    historyError.value = (e as Error).message
-    batches.value = []
-    total.value = 0
-  } finally { if (seq === historyRequest) historyBusy.value = false }
+  } catch (cause) { if (id === historyRequest && !disposed) historyError.value = (cause as Error).message }
+  finally { if (id === historyRequest) historyBusy.value = false }
 }
 function applyHistoryFilters() {
-  historyQuery = { ...historyFilters, page: 0, size: 20 }
+  applied = { ...filters }
   void loadHistory(1)
 }
 
 function stopPoll() {
-  clearTimeout(pollTimer)
-  pollTimer = undefined
-  detailRequest?.abort()
-  detailRequest = undefined
+  clearTimeout(timer)
+  controller?.abort()
+  controller = undefined
   detailBusy.value = false
 }
-function schedulePoll(status: BatchStatus) {
-  if (!nationalInFlight(status) || !drawerOpen.value || disposed) return
-  if (pollCount >= 24) { pollPaused.value = true; return }
-  pollTimer = setTimeout(() => { pollCount++; void refreshBatch() }, 2000)
-}
-async function refreshBatch(manual = false) {
-  if (!batchId.value || detailBusy.value || retrying.value || !drawerOpen.value) return
-  clearTimeout(pollTimer)
-  if (manual) { pollCount = 0; pollPaused.value = false }
-  const controller = new AbortController()
-  const id = batchId.value
-  detailRequest = controller
+async function readDetail(reset = false) {
+  if (!drawer.value || detailBusy.value || retrying.value || !batchId.value) return
+  clearTimeout(timer)
+  if (reset) { polls = 0; pollPaused.value = false }
+  const request = new AbortController()
+  controller = request
   detailBusy.value = true
   detailError.value = ''
+  const id = batchId.value
   try {
-    const oldStatus = batch.value?.status
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12000)])
-    const data = (await api.detail(id, auth.token!, signal)).data
-    if (controller.signal.aborted || disposed || batchId.value !== id) return
+    const { data } = await (await getNationalV2()).detail(id, token(), AbortSignal.any([request.signal, AbortSignal.timeout(12000)]))
+    if (request.signal.aborted || disposed || id !== batchId.value) return
+    const previous = batch.value?.status
     batch.value = data
-    const readiness = statuses[data.periodCode]
-    if (readiness?.existingBatch?.batchId === id) readiness.existingBatch.status = data.status
-    if (oldStatus !== data.status) void loadHistory()
-    schedulePoll(data.status)
-  } catch (e) {
-    if (!controller.signal.aborted && !disposed) detailError.value = (e as Error).message
-  } finally {
-    if (detailRequest === controller) { detailRequest = undefined; detailBusy.value = false }
-  }
+    if (readiness.value?.existingBatch?.batchId === id) readiness.value.existingBatch.status = data.status
+    if (previous !== data.status) void loadHistory()
+    if (data.payloadFormat === 'XML' && inFlight(data.status)) {
+      if (polls < 24) timer = setTimeout(() => { polls++; void readDetail() }, 1500)
+      else pollPaused.value = true
+    }
+  } catch (cause) { if (!request.signal.aborted && !disposed) detailError.value = (cause as Error).message }
+  finally { if (controller === request) { controller = undefined; detailBusy.value = false } }
 }
 function openBatch(id: string) {
   stopPoll()
-  batch.value = undefined
-  detailError.value = retryError.value = ''
   batchId.value = id
-  drawerOpen.value = true
-  void refreshBatch(true)
+  batch.value = undefined
+  drawer.value = true
+  void readDetail(true)
 }
-watch(drawerOpen, open => { if (!open) stopPoll() })
-async function retryBatch() {
-  const current = batch.value
-  if (!current || !canRetryNational(current.status) || detailBusy.value || retrying.value) return
+async function retry() {
+  if (!canRetry.value || retrying.value || detailBusy.value) return
   stopPoll()
   retrying.value = true
-  retryError.value = ''
-  try { await api.retry(current.batchId, auth.token!) }
-  catch (e) { retryError.value = (e as Error).message }
+  detailError.value = ''
+  try {
+    await (await getNationalV2()).retry(batchId.value, token())
+    retrying.value = false
+    await readDetail(true)
+  } catch (cause) { detailError.value = (cause as Error).message }
   finally { retrying.value = false }
-  await refreshBatch(true)
 }
 
-function showConfirmation() {
-  if (!preview.value?.canSubmit || creating.value || loadingPreview.value || loadingPeriods.value) return
-  confirming.value = preview.value
-  acknowledgeMissing.value = false
-  creationError.value = ''
-  creationBlockers.value = []
-  confirmOpen.value = true
-}
-async function createBatch() {
-  const selected = confirming.value
-  if (!selected?.canSubmit || creating.value || (selected.requiresMissingAcknowledgement && !acknowledgeMissing.value)) return
-  creating.value = true
-  creationError.value = ''
-  creationBlockers.value = []
-  const code = selected.period.periodCode
+async function applyAction() {
+  const data = readiness.value, selected = action.value
+  if (!data || !selected || acting.value || data.period.periodCode !== periodCode.value) return
+  if (selected === 'generate' && !canGenerate.value || selected === 'revoke' && (data.existingBatch || !data.proxyItems.length)
+    || selected === 'freeze' && (!data.canSubmit || data.existingBatch)) return
+  const code = data.period.periodCode
+  acting.value = true
+  actionError.value = actionMessage.value = ''
+  actionDetails.value = []
   try {
-    const data = (await api.create({ periodCode: code, acknowledgeMissing: acknowledgeMissing.value }, auth.token!)).data
-    if (disposed) return
-    confirmOpen.value = false
-    delete statuses[code]
-    openBatch(data.batchId)
-    await fetchReadiness(code)
-    void loadHistory(1)
-  } catch (e) {
-    if (disposed) return
-    const data = e instanceof ApiError ? e.data : undefined
-    creationError.value = (e as Error).message
-    creationBlockers.value = [
-      ...(data?.blockers?.map(blocker => blocker.message) ?? []),
-      ...(e instanceof ApiError ? Object.values(e.fieldErrors) : []),
-    ]
-    confirmOpen.value = false
-    delete statuses[code]
-    if (e instanceof ApiError && e.status === 409 && data?.reasonCode === 'BATCH_EXISTS' && data.existingBatchId) openBatch(data.existingBatchId)
-    await fetchReadiness(code)
-  } finally { creating.value = false }
+    const api = await getNationalV2()
+    if (selected === 'generate') {
+      const result = (await api.generate(code, data.proxyVersion, token())).data
+      actionMessage.value = `已生成 ${result.generatedCount} 家企业的代填记录。`
+    } else if (selected === 'revoke') {
+      const result = (await api.revoke(code, data.proxyVersion, token())).data
+      actionMessage.value = `已撤销 ${result.removedCount} 家企业的未冻结代填。`
+    } else {
+      const result = (await api.create(code, token())).data
+      actionMessage.value = 'XML 已冻结并排队，请在批次详情查看分片和模拟回执。'
+      openBatch(result.batchId)
+      void loadHistory(1)
+    }
+  } catch (cause) {
+    actionError.value = (cause as Error).message
+    if (cause instanceof ApiError) {
+      actionDetails.value = [...Object.values(cause.fieldErrors), ...(cause.data?.blockers?.map(item => item.message) ?? [])]
+      if (cause.data?.enterpriseOrgIds?.length) actionDetails.value.push('无历史来源企业编号：' + cause.data.enterpriseOrgIds.join('、'))
+      if (cause.data?.reasonCode === 'PROXY_SOURCE_CHANGED') actionDetails.value.push('请重新生成代填并再次核对来源。')
+      if (cause.data?.existingBatchId) openBatch(cause.data.existingBatchId)
+    }
+  } finally {
+    action.value = undefined
+    if (!disposed) await loadReadiness(code)
+    acting.value = false
+  }
 }
+watch(drawer, open => { if (!open) stopPoll() })
 function readRoute() {
-  if (typeof route.query.periodCode === 'string') selectedCode.value = route.query.periodCode
-  if (typeof route.query.batchId === 'string' && (!drawerOpen.value || route.query.batchId !== batchId.value)) openBatch(route.query.batchId)
+  if (typeof route.query.periodCode === 'string') periodCode.value = route.query.periodCode
+  if (typeof route.query.batchId === 'string') openBatch(route.query.batchId)
 }
-onMounted(() => {
-  readRoute()
-  void loadPeriods()
-  void loadHistory()
-})
-watch(() => [route.query.periodCode, route.query.batchId], () => {
-  readRoute()
-  void refreshPreview()
-})
+onMounted(() => { readRoute(); void loadPeriods(); void loadHistory() })
+watch(() => [route.query.periodCode, route.query.batchId], () => { readRoute(); pickPeriod() })
 onBeforeUnmount(() => { disposed = true; stopPoll() })
 </script>
 
 <template>
-  <section class="national-page">
+  <section class="national-v2">
     <div class="page-heading">
-      <div><h1>国家上报 <el-tag type="warning">模拟接口 · MOCK</el-tag></h1><p>选择调查期，核对预览并确认生成冻结批次。</p></div>
-      <el-button :loading="loadingPeriods" :disabled="creating || loadingPreview" @click="loadPeriods">刷新调查期</el-button>
+      <div><h1>国家上报</h1><p>核对本期应报覆盖，冻结 XML 后查看消息分片和内部模拟回执。</p></div>
+      <el-tag type="warning">内部模拟接收</el-tag>
     </div>
-    <el-alert title="V1 使用项目内部模拟接收端，真实国家平台尚未接入。" type="warning" :closable="false" show-icon />
-
-    <el-card class="business-card" shadow="never" v-loading="loadingPeriods">
-      <template #header><h2 class="national-stage">1. 核对调查期条件</h2></template>
+    <el-card shadow="never" class="business-card">
+      <template #header><h2>调查期与上报门槛</h2></template>
       <el-alert v-if="periodError" :title="periodError" type="error" :closable="false" />
-      <el-table :data="periods" row-key="code" empty-text="暂无调查期">
-        <el-table-column label="调查期" min-width="175"><template #default="{ row }">{{ row.label }}（{{ row.code }}）</template></el-table-column>
-        <el-table-column label="填报截止（北京时间）" min-width="185"><template #default="{ row }">{{ formatBeijingTime(statuses[row.code]?.period.closeAt ?? row.closeAt) }}</template></el-table-column>
-        <el-table-column label="省审通过且有效" width="125"><template #default="{ row }">{{ statuses[row.code]?.counts.approvedCount ?? '—' }}</template></el-table-column>
-        <el-table-column label="待处理" width="85"><template #default="{ row }">{{ statuses[row.code] ? pendingCount(statuses[row.code]!) : '—' }}</template></el-table-column>
-        <el-table-column label="缺报" width="80"><template #default="{ row }">{{ statuses[row.code]?.counts.missingCount ?? '—' }}</template></el-table-column>
-        <el-table-column label="上报门槛" min-width="220">
-          <template #default="{ row }">
-            <span v-if="statusErrors[row.code]">读取失败：{{ statusErrors[row.code] }}</span>
-            <el-tag v-else-if="statuses[row.code]?.canSubmit" type="success">可上报</el-tag>
-            <span v-else-if="statuses[row.code]">{{ statuses[row.code]!.blockers.map(b => b.message).join('、') || '暂不可上报' }}</span>
-            <span v-else>待读取</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="最近批次" min-width="145"><template #default="{ row }">
-          <el-button v-if="statuses[row.code]?.existingBatch" link type="primary" @click="openBatch(statuses[row.code]!.existingBatch!.batchId)">{{ batchStatusLabels[statuses[row.code]!.existingBatch!.status] }}</el-button>
-          <span v-else>{{ statuses[row.code] ? '暂无批次' : '—' }}</span>
-        </template></el-table-column>
-        <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }">
-          <el-button link type="primary" :disabled="creating || loadingPreview" @click="selectPeriod(row.code)">{{ selectedCode === row.code ? '刷新预览' : '查看预览' }}</el-button>
-        </template></el-table-column>
-      </el-table>
+      <el-form inline :disabled="loadingPeriods || acting" @submit.prevent="pickPeriod">
+        <el-form-item label="调查期">
+          <el-select v-model="periodCode" filterable style="width: min(290px, 64vw)" @change="pickPeriod">
+            <el-option v-for="period in periods" :key="period.code" :value="period.code" :label="period.label" />
+          </el-select>
+        </el-form-item>
+        <el-button native-type="submit" :disabled="!periodCode || loadingPreview">刷新本期门槛</el-button>
+        <el-button @click="loadPeriods">刷新调查期</el-button>
+      </el-form>
+      <el-alert v-if="previewError" :title="previewError" type="error" :closable="false" />
+      <div v-loading="loadingPreview" :aria-busy="loadingPreview">
+        <template v-if="readiness">
+          <p>{{ readiness.period.periodLabel }} · 填报截止 {{ formatBeijingTime(readiness.period.closeAt) }}（北京时间）</p>
+          <dl class="count-strip">
+            <div><dt>应报企业</dt><dd>{{ eligible }}</dd></div>
+            <div><dt>真实报表已省审通过</dt><dd>{{ readiness.counts.realCount }}</dd></div>
+            <div><dt>已代填</dt><dd>{{ readiness.counts.proxyCount }}</dd></div>
+            <div><dt>尚未覆盖</dt><dd>{{ readiness.counts.missingCount }}</dd></div>
+          </dl>
+          <p v-if="awaitingReview" class="muted">其中待审或退回 {{ awaitingReview }} 家，须完成审核或重新提交。</p>
+          <ul v-if="readiness.blockers.length" class="national-blockers"><li v-for="blocker in readiness.blockers" :key="blocker.code">{{ blocker.message }}</li></ul>
+          <p v-else>应报企业已全部覆盖，可以核对并冻结。</p>
+          <el-button v-if="readiness.existingBatch" type="primary" @click="openBatch(readiness.existingBatch.batchId)">查看现有批次</el-button>
+        </template>
+        <el-empty v-else-if="!loadingPreview && !previewError" description="选择调查期后查看上报门槛" :image-size="60" />
+      </div>
     </el-card>
 
-    <el-card class="business-card" shadow="never" v-loading="loadingPreview">
-      <template #header><h2 class="national-stage">2. 核对上报预览与缺报{{ selectedCode ? ' · ' + selectedCode : '' }}</h2></template>
-      <el-alert v-if="creationError" :title="creationError" type="error" :closable="false" />
-      <ul v-if="creationBlockers.length"><li v-for="(message, index) in creationBlockers" :key="index">{{ message }}</li></ul>
-      <el-alert v-if="selectedCode && statusErrors[selectedCode]" :title="statusErrors[selectedCode]" type="error" :closable="false" />
-      <template v-if="preview">
-        <ul v-if="preview.blockers.length" class="blockers"><li v-for="blocker in preview.blockers" :key="blocker.code">{{ blocker.message }}</li></ul>
-        <p>以下为当前有效数据预览。批次建立后，请在详情查看冻结报文。</p>
-        <NationalPayloadPreview :preview="preview.preview" />
-        <h3>排除数据</h3>
-        <p>待市审 {{ preview.counts.pendingCityCount }} · 待省审 {{ preview.counts.pendingProvinceCount }} · 市级退回 {{ preview.counts.returnedCityCount }} · 省级退回 {{ preview.counts.returnedProvinceCount }} · 已作废 {{ preview.counts.voidedCount }} · 已备案未上报 {{ preview.counts.missingCount }}</p>
-        <el-table :data="preview.missingEnterprises" row-key="enterpriseOrgId" empty-text="暂无缺报企业">
-          <el-table-column prop="enterpriseName" label="缺报企业" min-width="180" />
-          <el-table-column prop="cityCode" label="所属市代码" />
-          <el-table-column prop="regionCode" label="地区代码" />
-          <el-table-column label="本期状态"><template #default="{ row }">{{ row.reportStatus === 'DRAFT' ? '草稿未提交' : '本期未上报' }}</template></el-table-column>
+    <template v-if="readiness && !readiness.existingBatch">
+      <el-card shadow="never" class="business-card">
+        <template #header><h2>缺报待补与代填来源</h2></template>
+        <p class="muted">代填使用企业最近一次真实且省审通过的有效月度报表。建档和调查人数均复制该来源的调查人数。</p>
+        <el-collapse>
+          <el-collapse-item :title="`缺报待补 · 尚未覆盖 ${readiness.counts.missingCount} 家`" name="uncovered">
+            <el-table :data="[...readiness.fillable, ...readiness.noRealSource]" empty-text="暂无可列出的缺报企业">
+              <el-table-column prop="enterpriseName" label="企业" min-width="160" />
+              <el-table-column prop="regionCode" label="行政区划" min-width="105" />
+              <el-table-column label="处理方式" min-width="150"><template #default="{ row }">{{ row.source ? '可代填' : '无历史来源，阻止上报' }}</template></el-table-column>
+            </el-table>
+            <p v-if="awaitingReview" class="muted">另有待审或退回 {{ awaitingReview }} 家，请在原审核页面处理。</p>
+          </el-collapse-item>
+        </el-collapse>
+        <h3>可代填 · {{ readiness.fillable.length }} 家</h3>
+        <el-table :data="readiness.fillable" empty-text="暂无可代填企业">
+          <el-table-column prop="enterpriseName" label="企业" min-width="160" />
+          <el-table-column prop="regionCode" label="行政区划" min-width="105" />
+          <el-table-column prop="source.sourcePeriodCode" label="来源期次" min-width="130" />
+          <el-table-column label="来源报表" min-width="135"><template #default="{ row }"><router-link :to="reportLink(row.source.sourceReportId)">{{ row.source.sourceReportId }}</router-link><span class="muted"> · 版本 {{ row.source.sourceCurrentVersion }}</span></template></el-table-column>
+          <el-table-column prop="source.periodEmploymentCount" label="复制人数" align="right" min-width="100" />
+        </el-table>
+        <h3>无历史来源 · {{ readiness.noRealSource.length }} 家</h3>
+        <el-table :data="readiness.noRealSource" empty-text="暂无缺少历史来源的企业">
+          <el-table-column prop="enterpriseName" label="企业" min-width="160" />
+          <el-table-column prop="enterpriseOrgId" label="企业编号" min-width="115" />
+          <el-table-column prop="regionCode" label="行政区划" min-width="105" />
+          <el-table-column label="阻止原因" min-width="195"><template #default>没有可用历史真实报表</template></el-table-column>
         </el-table>
         <div class="form-actions">
-          <el-button v-if="preview.existingBatch" @click="openBatch(preview.existingBatch.batchId)">查看现有批次</el-button>
-          <el-button type="primary" :loading="creating" :disabled="!preview.canSubmit || loadingPeriods || loadingPreview" @click="showConfirmation">确认上报</el-button>
+          <el-button :disabled="acting || !readiness.proxyItems.length" @click="action = 'revoke'">撤销未冻结代填</el-button>
+          <el-button type="primary" :disabled="acting || !canGenerate" @click="action = 'generate'">{{ readiness.proxyItems.length ? '重新生成代填' : '生成代填' }}</el-button>
         </div>
-      </template>
-      <el-empty v-else-if="!loadingPeriods && !loadingPreview && !statusErrors[selectedCode]" description="选择调查期后查看预览" :image-size="60" />
-    </el-card>
+      </el-card>
+      <el-card shadow="never" class="business-card">
+        <template #header><h2>全省汇总与逐企业 XML 摘要</h2></template>
+        <p>当前预览 {{ readiness.previewSummary.enterpriseCount }} 家（真实 {{ readiness.previewSummary.realCount }}，代填 {{ readiness.previewSummary.proxyCount }}）。</p>
+        <p>建档 {{ readiness.previewSummary.baselineEmploymentTotal }} 人，调查 {{ readiness.previewSummary.periodEmploymentTotal }} 人，净变化 {{ readiness.previewSummary.netChange }} 人。</p>
+        <el-table :data="[...readiness.realEnterprises, ...readiness.proxyItems]" row-key="enterpriseOrgId" empty-text="暂无可纳入预览的企业">
+          <el-table-column prop="enterpriseName" label="企业" min-width="160" />
+          <el-table-column label="填报类型" width="150"><template #default="{ row }"><el-tag :type="row.reportId ? 'success' : 'warning'">{{ row.reportId ? '真实填报 REAL' : '代填 PROXY' }}</el-tag></template></el-table-column>
+          <el-table-column prop="regionCode" label="行政区划" min-width="100" />
+          <el-table-column label="报表与来源" min-width="170"><template #default="{ row }">
+            <router-link :to="reportLink(row.reportId || row.sourceReportId)">{{ row.reportId || row.sourceReportId }}</router-link>
+            <span v-if="row.proxySourcePeriodCode" class="muted"> · {{ row.proxySourcePeriodCode }} / 版本 {{ row.sourceCurrentVersion }}</span>
+          </template></el-table-column>
+          <el-table-column prop="baselineEmploymentCount" label="建档" width="82" align="right" />
+          <el-table-column prop="periodEmploymentCount" label="调查" width="82" align="right" />
+          <el-table-column prop="netChange" label="净变化" width="85" align="right" />
+        </el-table>
+        <div class="form-actions"><el-button type="primary" :disabled="acting || !readiness.canSubmit" @click="action = 'freeze'">确认冻结并排队</el-button></div>
+      </el-card>
+    </template>
+    <el-alert v-if="actionMessage" :title="actionMessage" type="success" show-icon :closable="false" />
+    <el-alert v-if="actionError" :title="actionError" type="error" show-icon :closable="false" />
+    <ul v-if="actionDetails.length"><li v-for="(detail, i) in actionDetails" :key="i">{{ detail }}</li></ul>
 
-    <el-card class="business-card" shadow="never" v-loading="historyBusy">
-      <template #header><h2 class="national-stage">3. 查看冻结批次与模拟回执</h2></template>
-      <el-form inline :disabled="historyBusy" @submit.prevent="applyHistoryFilters">
-        <el-form-item label="调查期"><el-select v-model="historyFilters.periodCode" style="width:220px" clearable placeholder="全部调查期">
-          <el-option v-for="period in periods" :key="period.code" :label="period.label" :value="period.code" />
-        </el-select></el-form-item>
-        <el-form-item label="状态"><el-select v-model="historyFilters.status" style="width:170px" clearable placeholder="全部状态">
-          <el-option v-for="(label, key) in batchStatusLabels" :key="key" :label="label" :value="key" />
-        </el-select></el-form-item>
-        <el-button native-type="submit">查询批次</el-button>
+    <el-card shadow="never" class="business-card" v-loading="historyBusy">
+      <template #header><h2>上报批次历史</h2></template>
+      <el-form inline @submit.prevent="applyHistoryFilters">
+        <el-form-item label="调查期"><el-select v-model="filters.periodCode" clearable filterable placeholder="全部调查期" style="width:200px"><el-option v-for="p in periods" :key="p.code" :value="p.code" :label="p.label" /></el-select></el-form-item>
+        <el-form-item label="状态"><el-select v-model="filters.status" clearable placeholder="全部状态" style="width:175px"><el-option v-for="(label, key) in statusLabels" :key="key" :value="key" :label="label" /></el-select></el-form-item>
+        <el-button native-type="submit">查询历史</el-button>
       </el-form>
       <el-alert v-if="historyError" :title="historyError" type="error" :closable="false" />
-      <el-table :data="batches" row-key="batchId" empty-text="暂无符合条件的模拟批次">
+      <el-table :data="batchList" row-key="batchId" empty-text="暂无匹配批次">
         <el-table-column prop="batchId" label="批次号" min-width="180" />
         <el-table-column prop="periodCode" label="调查期" min-width="140" />
-        <el-table-column label="模式" width="95"><template #default>MOCK</template></el-table-column>
-        <el-table-column label="状态" min-width="135"><template #default="{ row }">{{ batchStatusLabels[row.status as BatchStatus] || row.status }}</template></el-table-column>
-        <el-table-column label="最近发送（北京时间）" min-width="185"><template #default="{ row }">{{ formatBeijingTime(row.lastSentAt) }}</template></el-table-column>
-        <el-table-column prop="enterpriseCount" label="企业数" width="90" />
-        <el-table-column prop="retryCount" label="重试次数" width="95" />
-        <el-table-column prop="payloadSha256" label="SHA-256" min-width="170" show-overflow-tooltip />
-        <el-table-column label="详情" width="95" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openBatch(row.batchId)">查看</el-button></template></el-table-column>
+        <el-table-column label="报文与接收模式" min-width="190"><template #default="{ row }">{{ formatLabel(row) }}</template></el-table-column>
+        <el-table-column label="状态" min-width="155"><template #default="{ row }">{{ statusLabels[row.status as BatchStatusV2] ?? row.status }}</template></el-table-column>
+        <el-table-column label="真实 / 代填" width="118"><template #default="{ row }">{{ row.realCount ?? row.enterpriseCount }} / {{ row.proxyCount ?? 0 }}</template></el-table-column>
+        <el-table-column label="冻结时间（北京时间）" min-width="177"><template #default="{ row }">{{ formatBeijingTime(row.createdAt) }}</template></el-table-column>
+        <el-table-column label="操作" width="105" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openBatch(row.batchId)">查看批次</el-button></template></el-table-column>
       </el-table>
       <el-pagination :current-page="page" :total="total" :page-size="20" :disabled="historyBusy" layout="total,prev,pager,next" @current-change="loadHistory" />
     </el-card>
 
-    <el-dialog v-model="confirmOpen" title="确认模拟上报" width="min(580px, 94vw)" :close-on-click-modal="!creating" :close-on-press-escape="!creating" :show-close="!creating">
-      <template v-if="confirming">
-        <p>即将模拟上报 {{ confirming.preview.summary.enterpriseCount }} 家企业（{{ confirming.period.periodCode }}）。确认后，批内报表立即锁定，不能作废或修订。</p>
-        <el-checkbox v-if="confirming.requiresMissingAcknowledgement" v-model="acknowledgeMissing" :disabled="creating">已知晓本期 {{ confirming.counts.missingCount }} 家企业缺报</el-checkbox>
-      </template>
+    <el-dialog v-model="confirming" :title="action ? actionLabels[action] : ''" width="min(560px,94vw)" :close-on-click-modal="!acting" :close-on-press-escape="!acting" :show-close="!acting">
+      <p v-if="action === 'freeze'">冻结本期 {{ readiness?.previewSummary.enterpriseCount }} 家企业的 XML，其中代填 {{ readiness?.previewSummary.proxyCount }} 家。冻结后，入批真实报表与代填记录立即锁定，批次进入发送队列。</p>
+      <p v-else-if="action === 'revoke'">将撤销本期全部未冻结代填。真实报表继续保留。</p>
+      <p v-else>将按当前缺报和真实来源生成或刷新整期代填记录。</p>
       <template #footer>
-        <el-button :disabled="creating" @click="confirmOpen=false">取消</el-button>
-        <el-button type="primary" :loading="creating" :disabled="confirming?.requiresMissingAcknowledgement && !acknowledgeMissing" @click="createBatch">确认模拟上报</el-button>
+        <el-button :disabled="acting" @click="action = undefined">取消</el-button>
+        <el-button type="primary" :loading="acting" @click="applyAction">{{ action ? actionLabels[action] : '确认' }}</el-button>
       </template>
     </el-dialog>
 
-    <el-drawer v-model="drawerOpen" title="模拟批次详情" size="min(1060px, 96vw)" :close-on-click-modal="!retrying" :close-on-press-escape="!retrying" :show-close="!retrying">
-      <el-tag type="warning">模拟接口 · MOCK</el-tag>
-      <h2>{{ batchId }}</h2>
-      <el-alert v-if="detailError || retryError" :title="detailError || retryError" type="error" :closable="false" />
-      <p v-if="pollPaused">自动刷新已暂停，可手动读取最新批次状态。</p>
-      <div class="form-actions">
-        <el-button :disabled="detailBusy || retrying" @click="refreshBatch(true)">刷新详情</el-button>
-        <el-button v-if="batch && canRetryNational(batch.status)" type="primary" :disabled="detailBusy || !!detailError" :loading="retrying" @click="retryBatch">继续发送同一批次</el-button>
-      </div>
-      <template v-if="batch">
-        <p>{{ batchStatusLabels[batch.status] }} · {{ batch.enterpriseCount }} 家 · 重试 {{ batch.retryCount }} 次</p>
-        <p>创建 {{ formatBeijingTime(batch.createdAt) }} · 最近发送 {{ formatBeijingTime(batch.lastSentAt) }}（北京时间）</p>
-        <p class="hash">SHA-256 {{ batch.payloadSha256 }}</p>
-        <el-alert v-if="batch.lastError" :title="batch.lastError" type="error" :closable="false" />
-        <h3>冻结报文与企业明细</h3>
-        <p>报文版本 {{ batch.payload.schemaVersion }} · 省份 {{ batch.payload.provinceCode }} · 调查期 {{ batch.payload.periodCode }} · 冻结时间 {{ formatBeijingTime(batch.payload.generatedAt) }}</p>
-        <p>调查期范围 {{ formatBeijingTime(batch.payload.periodStartAt) }} 至 {{ formatBeijingTime(batch.payload.periodEndExclusiveAt) }}（不含结束时刻，北京时间）</p>
-        <NationalPayloadPreview :preview="batch.payload" />
-        <details class="payload-json">
-          <summary>查看冻结 JSON</summary>
-          <p>以下为格式化预览。SHA-256 由服务端根据冻结的原始报文字节生成。</p>
-          <pre>{{ JSON.stringify(batch.payload, null, 2) }}</pre>
-        </details>
-        <h3>发送尝试</h3>
-        <el-table :data="batch.attempts" row-key="attemptNo" empty-text="暂无发送尝试">
-          <el-table-column prop="attemptNo" label="序号" width="70" />
-          <el-table-column label="开始时间"><template #default="{ row }">{{ formatBeijingTime(row.startedAt) }}</template></el-table-column>
-          <el-table-column label="结束时间"><template #default="{ row }">{{ formatBeijingTime(row.finishedAt) }}</template></el-table-column>
-          <el-table-column label="结果"><template #default="{ row }">{{ row.result === 'ACCEPTED' ? '模拟已接收' : row.result === 'FAILED' ? '失败' : '发送中' }}</template></el-table-column>
-          <el-table-column prop="errorSummary" label="错误摘要" />
-          <el-table-column prop="mockReceiptId" label="模拟回执号" />
-        </el-table>
-        <h3>模拟回执</h3>
-        <template v-if="batch.receipt">
-          <p>批次 {{ batch.receipt.batchId }} · 回执 {{ batch.receipt.mockReceiptId }} · 模拟已接收 {{ batch.receipt.acceptedEnterpriseCount }} 家</p>
-          <p>接收时间 {{ formatBeijingTime(batch.receipt.receivedAt) }}（北京时间）</p>
-          <p class="hash">回执 SHA-256 {{ batch.receipt.payloadSha256 }}</p>
+    <el-drawer v-model="drawer" title="模拟批次详情" size="min(980px, 96vw)" :close-on-click-modal="!retrying">
+      <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" />
+      <div class="heading-actions"><el-button :disabled="detailBusy || retrying" @click="readDetail(true)">刷新批次</el-button>
+        <el-button v-if="canRetry" type="primary" :disabled="detailBusy" :loading="retrying" @click="retry">重试原批次</el-button></div>
+      <div v-loading="detailBusy" class="batch-detail">
+        <template v-if="batch">
+          <h2>{{ batch.batchId }}</h2>
+          <p>{{ formatLabel(batch) }} · {{ statusLabels[batch.status] ?? batch.status }}</p>
+          <p v-if="batch.payloadFormat !== 'XML'" class="muted">V1 历史批次仅供查看。</p>
+          <p v-if="pollPaused" class="muted">已暂停自动刷新，可点击「刷新批次」继续查看。</p>
+          <p v-if="batch.lastError" role="alert">{{ batch.lastError }}</p>
+          <section v-if="batch.chunkProgress">
+            <h3>分片与组装</h3>
+            <p>队列已确认 {{ batch.chunkProgress.brokerConfirmedCount }} / {{ batch.chunkProgress.chunkCount }} 片</p>
+            <p>模拟端已存储 {{ batch.chunkProgress.receiverStoredCount }} / {{ batch.chunkProgress.chunkCount }} 片</p>
+            <p>组装时间 {{ formatBeijingTime(batch.chunkProgress.assembledAt) }}（北京时间）</p>
+            <p v-if="batch.chunkProgress.lastError">{{ batch.chunkProgress.lastError }}</p>
+          </section>
+          <h3>模拟接收回执</h3>
+          <template v-if="batch.receipt">
+            <p>回执号 {{ batch.receipt.mockReceiptId }} · 模拟接收 {{ batch.receipt.acceptedEnterpriseCount }} 家</p>
+            <p v-if="'chunkCount' in batch.receipt">真实 {{ batch.receipt.realCount }} 家 · 代填 {{ batch.receipt.proxyCount }} 家 · {{ batch.receipt.chunkCount }} 片</p>
+            <p>接收时间 {{ formatBeijingTime(batch.receipt.receivedAt) }}（北京时间）</p>
+            <p class="hash">回执 SHA-256 {{ batch.receipt.payloadSha256 }}</p>
+          </template>
+          <p v-else class="muted">暂未收到模拟端回执。</p>
+          <h3>发送尝试</h3>
+          <el-table :data="batch.attempts" empty-text="暂无发送尝试">
+            <el-table-column prop="attemptNo" label="序号" width="70" />
+            <el-table-column label="开始（北京时间）" min-width="163"><template #default="{ row }">{{ formatBeijingTime(row.startedAt) }}</template></el-table-column>
+            <el-table-column label="结果" min-width="100"><template #default="{ row }">{{ row.result === 'ACCEPTED' ? '模拟已接收' : row.result === 'FAILED' ? '失败' : '处理中' }}</template></el-table-column>
+            <el-table-column prop="errorSummary" label="错误说明" min-width="155" />
+          </el-table>
+          <h3>冻结报文</h3>
+          <p class="hash">SHA-256 {{ batch.payloadSha256 }}</p>
+          <details v-if="batch.payloadXml || batch.payload">
+            <summary>查看冻结 {{ batch.payloadXml ? 'XML 原文' : 'JSON 历史报文' }}</summary>
+            <pre>{{ batch.payloadXml ?? JSON.stringify(batch.payload, null, 2) }}</pre>
+          </details>
         </template>
-        <p v-else>暂无模拟回执。</p>
-      </template>
-      <p v-else-if="detailBusy">正在读取批次详情…</p>
+      </div>
     </el-drawer>
   </section>
 </template>
 
 <style scoped>
-.hash { overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; }
-.blockers { color: #8b4c12; line-height: 1.65; }
-.payload-json { margin: 16px 0; }
-.payload-json summary { cursor: pointer; color: #2768a6; }
-.payload-json pre { overflow: auto; max-height: 320px; padding: 12px; background: #f4f6f9; }
+.national-v2 h2 { margin: 0; font-size: 18px; }
+.national-v2 h3 { margin: 18px 0 8px; }
+.count-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; border: 1px solid var(--line); background: var(--line); }
+.count-strip > div { padding: 10px 12px; background: var(--canvas); }
+.count-strip dd { margin: 3px 0 0; font-size: 22px; font-weight: 650; }
+.national-blockers { padding-inline-start: 28px; color: var(--amber); }
+.batch-detail { min-height: 100px; }
+.batch-detail h2 { overflow-wrap: anywhere; }
+.hash { overflow-wrap: anywhere; }
+summary { cursor: pointer; color: var(--accent); }
+pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line); background: var(--canvas); padding: 12px; }
 </style>

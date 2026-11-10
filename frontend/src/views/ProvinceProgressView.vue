@@ -10,6 +10,7 @@ import { filingProgressLabels, reportProgressLabels, reportFilterLabels, reportF
 import type { FilingProgressStatus, ProgressQuery, ProgressResult, ReportProgressFilter } from '@/types/revision'
 import type { SurveyPeriod } from '@/types/report'
 import RegionPicker from '@/components/RegionPicker.vue'
+import CoverageMeter from '@/components/CoverageMeter.vue'
 
 const route = useRoute(), auth = useAuthStore()
 const periods = ref<SurveyPeriod[]>([])
@@ -80,6 +81,7 @@ onMounted(async () => {
           <div><strong>查询结果</strong><p>{{ result.periodCode }} · {{ applied?.cityCode || '全省' }} · {{ applied?.filingStatus ? filingProgressLabels[applied.filingStatus] : '全部备案状态' }} · {{ applied?.reportStatus ? reportFilterLabels[applied.reportStatus] : '全部上报状态' }}</p></div>
           <strong>{{ result.summary.totalEnterprises }} 家企业</strong>
         </div>
+        <CoverageMeter :counts="result.coverageSummary" />
         <div class="counts"><strong>备案</strong><el-button v-for="(label,key) in filingProgressLabels" :key="key" :disabled="busy" @click="filingOnly(key)">{{ label }} {{ result.summary.filingCounts[key] ?? 0 }}</el-button></div>
         <div class="counts"><strong>上报</strong><el-button v-for="(label,key) in reportFilterLabels" :key="key" :disabled="busy" @click="reportOnly(key)">{{ label }} {{ reportFilterStates[key].reduce((n,s)=>n+(result?.summary.reportCounts[s]??0),0) }}</el-button></div>
         <el-table :data="result.items" empty-text="暂无符合条件的企业">
@@ -88,6 +90,10 @@ onMounted(async () => {
           <el-table-column label="备案情况" min-width="120"><template #default="{ row }"><el-tag :type="row.filingStatus === 'APPROVED' ? 'success' : row.filingStatus === 'RETURNED' ? 'warning' : 'info'">{{ filingProgressLabels[row.filingStatus as FilingProgressStatus] }}</el-tag></template></el-table-column>
           <el-table-column label="调查期"><template #default>{{ result.periodCode }}</template></el-table-column>
           <el-table-column label="本期上报情况" min-width="150"><template #default="{ row }"><el-tag :type="row.reportStatus === 'APPROVED_PROVINCE' ? 'success' : row.reportStatus === 'VOIDED' ? 'danger' : reportFilterStates.RETURNED.includes(row.reportStatus) ? 'warning' : 'info'">{{ reportProgressLabels[row.reportStatus as keyof typeof reportProgressLabels] }}</el-tag></template></el-table-column>
+          <el-table-column label="本期覆盖" min-width="175"><template #default="{ row }">
+            <span>{{ row.eligible === false ? '不在应报范围' : row.coverageMode === 'REAL' ? '真实已报' : row.coverageMode === 'PROXY' ? '已代填' : row.coverageMode === 'NONE' ? '尚未覆盖' : '—' }}</span>
+            <p v-if="row.proxySource" class="muted">来源 {{ row.proxySource.sourcePeriodCode }} · {{ row.proxySource.periodEmploymentCount }} 人</p>
+          </template></el-table-column>
           <el-table-column label="最近提交（北京时间）" min-width="190"><template #default="{ row }">{{ formatBeijingTime(row.lastSubmittedAt) }}</template></el-table-column>
         </el-table>
         <el-pagination v-model:current-page="page" :total="result.total" :page-size="20" :disabled="busy" layout="total,prev,pager,next" @current-change="query(false)" />

@@ -1,6 +1,7 @@
 import type { SurveyPeriod } from './report'
 import type { AnalysisFilters, SixMetrics } from './week6'
 import type { NationalReportCard } from './national'
+import type { Coverage, CoverageMode, HomeState, ProxySource } from './midterm'
 
 export type BaselineSourceKind = 'FIRST_SUBMISSION' | 'PREVIOUS_SUBMISSION' | 'LEGACY_MIGRATED'
 export interface BaselineSource {
@@ -37,8 +38,12 @@ export interface EnterpriseOverview {
   currentStep: EnterpriseStepSummary
   nextAction: NextAction
   visibleNoticeCount: number
+  homeState?: HomeState
+  homePeriod?: SelectedPeriod | null
+  homeReturnReason?: string | null
+  homeNextAction?: NextAction
 }
-export interface CityOverview {
+export interface CityOverview extends Partial<Coverage> {
   selectedPeriod: SelectedPeriod | null
   reportCounts: Record<'pendingCity' | 'approvedCity' | 'returnedCity' | 'forwardedProvince' | 'notSubmitted', number>
   noticeEntry: OverviewLink
@@ -53,8 +58,9 @@ export interface ProvinceOverview {
   cityProgress: {
     submittedCityCount: number
     notSubmittedCityCount: number
-    items: { cityCode: string; cityName: string; eligibleEnterpriseCount: number; submittedEnterpriseCount: number; notSubmittedEnterpriseCount: number }[]
+    items: (Partial<Coverage> & { cityCode: string; cityName: string; eligibleEnterpriseCount: number; submittedEnterpriseCount: number; notSubmittedEnterpriseCount: number })[]
   }
+  provinceTotals?: Coverage
   entries: OverviewLink[]
 }
 export type FilingProgressStatus = 'NO_FILING' | 'DRAFT' | 'PENDING' | 'RETURNED' | 'APPROVED'
@@ -78,6 +84,9 @@ export interface ProgressRow {
   reportId: string | null
   reportVoided: boolean
   lastSubmittedAt: string | null
+  eligible?: boolean
+  coverageMode?: CoverageMode
+  proxySource?: ProxySource | null
 }
 export interface ProgressResult {
   periodCode: string
@@ -90,6 +99,7 @@ export interface ProgressResult {
   total: number
   page: number
   size: number
+  coverageSummary?: Coverage
 }
 export type GroupBy = 'CITY' | 'NATURE' | 'INDUSTRY' | 'CHANGE_DIRECTION'
 export type ChangeDirection = 'INCREASE' | 'UNCHANGED' | 'DECREASE'

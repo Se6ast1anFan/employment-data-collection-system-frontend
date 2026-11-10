@@ -86,7 +86,7 @@ function summarize(items: NationalEnterprise[]): NationalSummary {
     netChange: sum.netChange + row.netChange,
   }), { enterpriseCount: 0, baselineEmploymentTotal: 0, periodEmploymentTotal: 0, netChange: 0 })
 }
-function effectiveRow(report: ReportView, orgId: string, name: string): NationalEnterprise {
+export function effectiveRow(report: ReportView, orgId: string, name: string): NationalEnterprise {
   const record = managementMockFilings.records.get(orgId)
   const snapshot = state.histories.get(orgId + ':' + report.periodCode)?.snapshots[0]
   const profile = record?.versions.get(snapshot?.filingVersion ?? 0)?.profile ?? record?.profile

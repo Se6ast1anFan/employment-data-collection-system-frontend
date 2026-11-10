@@ -1,5 +1,6 @@
 import type { ApiResponse } from '@/types/api'
 import type { DownloadedFile, FieldErrorData } from '@/types/filing'
+import type { YearMonth } from '@/types/midterm'
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '')
 
@@ -14,6 +15,8 @@ export class ApiError extends Error {
       reasonCode?: string
       existingBatchId?: string
       blockers?: { code: string; message: string }[]
+      conflictMonths?: YearMonth[]
+      enterpriseOrgIds?: string[]
     },
   ) {
     super(message)
