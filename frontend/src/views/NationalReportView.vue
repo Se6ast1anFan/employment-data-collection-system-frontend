@@ -27,7 +27,7 @@ const action = ref<'generate' | 'revoke' | 'freeze'>()
 const acting = ref(false)
 const confirming = computed({ get: () => !!action.value, set: open => { if (!open && !acting.value) action.value = undefined } })
 const actionLabels = { generate: '生成代填', revoke: '撤销代填', freeze: '确认冻结并排队' }
-const statusLabels: Record<BatchStatusV2, string> = { QUEUED: '已冻结，等待发送', SENDING: '分片发送中', ASSEMBLING: '模拟端组装中', MOCK_ACCEPTED: '模拟已接收', SEND_FAILED: '发送失败' }
+const statusLabels: Record<BatchStatusV2, string> = { QUEUED: '已冻结，等待发送', SENDING: '分片发送中', ASSEMBLING: '模拟端组装中', MOCK_ACCEPTED: '回执待核对', SEND_FAILED: '发送失败' }
 const inFlight = (status: BatchStatusV2) => ['QUEUED', 'SENDING', 'ASSEMBLING'].includes(status)
 const formatLabel = (item: { payloadFormat?: string; mode?: string }) => item.payloadFormat === 'XML' || item.mode === 'MOCK_QUEUE'
   ? 'XML / 消息队列 / 内部模拟' : 'JSON / 内部模拟'
@@ -53,6 +53,11 @@ let previewRequest = 0, historyRequest = 0
 const drawer = ref(false)
 const batchId = ref('')
 const batch = ref<BatchDetailV2>()
+const confirmedReceipt = computed<BatchDetailV2['receipt']>(() => {
+  const detail = batch.value
+  if (!detail || (detail.payloadFormat === 'XML' && detail.status !== 'MOCK_ACCEPTED')) return null
+  return detail.receipt
+})
 const detailBusy = ref(false)
 const detailError = ref('')
 const retrying = ref(false)
@@ -139,7 +144,7 @@ async function readDetail(reset = false) {
     batch.value = data
     if (readiness.value?.existingBatch?.batchId === id) readiness.value.existingBatch.status = data.status
     if (previous !== data.status) void loadHistory()
-    if (data.payloadFormat === 'XML' && inFlight(data.status)) {
+    if (data.payloadFormat === 'XML' && (inFlight(data.status) || (data.status === 'MOCK_ACCEPTED' && !data.receipt))) {
       if (polls < 24) timer = setTimeout(() => { polls++; void readDetail() }, 1500)
       else pollPaused.value = true
     }
@@ -344,7 +349,7 @@ onBeforeUnmount(() => { disposed = true; stopPoll() })
       <div v-loading="detailBusy" class="batch-detail">
         <template v-if="batch">
           <h2>{{ batch.batchId }}</h2>
-          <p>{{ formatLabel(batch) }} · {{ statusLabels[batch.status] ?? batch.status }}</p>
+          <p>{{ formatLabel(batch) }} · {{ batch.status === 'MOCK_ACCEPTED' && confirmedReceipt ? '模拟国家后端已接收' : statusLabels[batch.status] ?? batch.status }}</p>
           <p v-if="batch.payloadFormat !== 'XML'" class="muted">V1 历史批次仅供查看。</p>
           <p v-if="pollPaused" class="muted">已暂停自动刷新，可点击「刷新批次」继续查看。</p>
           <p v-if="batch.lastError" role="alert">{{ batch.lastError }}</p>
@@ -356,18 +361,18 @@ onBeforeUnmount(() => { disposed = true; stopPoll() })
             <p v-if="batch.chunkProgress.lastError">{{ batch.chunkProgress.lastError }}</p>
           </section>
           <h3>模拟接收回执</h3>
-          <template v-if="batch.receipt">
-            <p>回执号 {{ batch.receipt.mockReceiptId }} · 模拟接收 {{ batch.receipt.acceptedEnterpriseCount }} 家</p>
-            <p v-if="'chunkCount' in batch.receipt">真实 {{ batch.receipt.realCount }} 家 · 代填 {{ batch.receipt.proxyCount }} 家 · {{ batch.receipt.chunkCount }} 片</p>
-            <p>接收时间 {{ formatBeijingTime(batch.receipt.receivedAt) }}（北京时间）</p>
-            <p class="hash">回执 SHA-256 {{ batch.receipt.payloadSha256 }}</p>
+          <template v-if="confirmedReceipt">
+            <p>回执号 {{ confirmedReceipt.mockReceiptId }} · 模拟接收 {{ confirmedReceipt.acceptedEnterpriseCount }} 家</p>
+            <p v-if="'chunkCount' in confirmedReceipt">真实 {{ confirmedReceipt.realCount }} 家 · 代填 {{ confirmedReceipt.proxyCount }} 家 · {{ confirmedReceipt.chunkCount }} 片</p>
+            <p>接收时间 {{ formatBeijingTime(confirmedReceipt.receivedAt) }}（北京时间）</p>
+            <p class="hash">回执 SHA-256 {{ confirmedReceipt.payloadSha256 }}</p>
           </template>
           <p v-else class="muted">暂未收到模拟端回执。</p>
           <h3>发送尝试</h3>
           <el-table :data="batch.attempts" empty-text="暂无发送尝试">
             <el-table-column prop="attemptNo" label="序号" width="70" />
             <el-table-column label="开始（北京时间）" min-width="163"><template #default="{ row }">{{ formatBeijingTime(row.startedAt) }}</template></el-table-column>
-            <el-table-column label="结果" min-width="100"><template #default="{ row }">{{ row.result === 'ACCEPTED' ? '模拟已接收' : row.result === 'FAILED' ? '失败' : '处理中' }}</template></el-table-column>
+            <el-table-column label="结果" min-width="100"><template #default="{ row }">{{ row.result === 'ACCEPTED' ? '处理完成' : row.result === 'FAILED' ? '失败' : '处理中' }}</template></el-table-column>
             <el-table-column prop="errorSummary" label="错误说明" min-width="155" />
           </el-table>
           <h3>冻结报文</h3>

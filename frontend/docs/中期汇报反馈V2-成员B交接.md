@@ -31,3 +31,9 @@
 2026-11-10 直连共享后端健康检查为 HTTP 200 / UP。现有联调说明的企业、市级、省级演示账号登录均为 HTTP 401，未取得受保护的 V2 或数仓接口响应，也未执行共享环境业务写入。取得同版部署与可用演示账号后再做真实联调。
 
 截图使用本地匿名 Mock 数据。[全年预览](screenshots/midterm-v2-year-preview.png)、[省级首页](screenshots/midterm-v2-province-home.png)、[按市下钻](screenshots/midterm-v2-province-drill.png)、[市级首页](screenshots/midterm-v2-city-home.png)、[企业首页](screenshots/midterm-v2-enterprise-home.png)、[逐企业预览](screenshots/midterm-v2-national-preview.png)、[分片与模拟回执](screenshots/midterm-v2-national-receipt.png)。已有分析截图见 [同比环比示例](screenshots/province-analysis-month-over-month.png) 和 [立方体](screenshots/province-olap-cube.png)。
+
+## 2026-11-11 模拟接收端差量核对
+
+按《国家接口模拟接收端对接补充说明 仅差量》核对代码。真实模式通过业务 API 建批、刷新详情和重试。建批提示已冻结并排队，详情分别显示队列确认数、接收端存储数和服务端回执，定时器用于重新请求批次详情。浏览器本地模拟使用独立的 Mock 模式。
+
+V2 批次详情在 `status === 'MOCK_ACCEPTED'` 且 `receipt` 非空时显示「模拟国家后端已接收」和回执。状态已到但回执未到时，在原有次数限制内继续刷新详情。批次列表提示到详情核对回执。补充文档转述了后端的两片发送及回执验证，本次未复测共享环境。
