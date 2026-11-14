@@ -1,26 +1,8 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
-import { roleHomePaths } from '@/config/navigation'
+import { landingPath, pagePermissions } from '@/config/navigation'
 import { canAccess } from '@/router/access'
 import { useAuthStore } from '@/stores/auth'
-import type { PlaceholderPageConfig, RoleCode } from '@/types/api'
-
-const page = (
-  path: string,
-  role: RoleCode,
-  title: string,
-  description: string,
-  actions: PlaceholderPageConfig['actions'],
-): RouteRecordRaw => ({
-  path,
-  component: () => import('@/views/PlaceholderView.vue'),
-  meta: {
-    title,
-    requiresAuth: true,
-    roles: [role],
-    pageConfig: { title, description, actions },
-  },
-})
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/home' },
@@ -76,20 +58,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/province/enterprise-progress', component: () => import('@/views/ProvinceProgressView.vue'), meta: { title: '企业进度查询', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/accounts', component: () => import('@/views/ProvinceAccountsView.vue'), meta: { title: '全省账号查询', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/province/notices', component: () => import('@/views/NoticesView.vue'), meta: { title: '通知管理', requiresAuth: true, roles: ['PROVINCE'] } },
-  page('/province/users', 'PROVINCE', '用户管理', '管理省级、市级和企业账号及角色分配。', [
-    { label: '新增', week: 7 },
-    { label: '修改', week: 7 },
-    { label: '删除', week: 7 },
-  ]),
-  page('/province/roles', 'PROVINCE', '角色管理', '定义角色并配置功能权限。', [
-    { label: '新增', week: 7 },
-    { label: '修改', week: 7 },
-    { label: '删除', week: 7 },
-    { label: '授权', week: 7 },
-  ]),
-  page('/province/monitor', 'PROVINCE', '系统监控', '查看 CPU、内存、磁盘及应用运行情况。', [
-    { label: '刷新监控', week: 7 },
-  ]),
+  { path: '/province/users', component: () => import('@/views/ProvinceUsersView.vue'), meta: { title: '用户管理', requiresAuth: true, roles: ['PROVINCE'] } },
+  { path: '/province/roles', component: () => import('@/views/ProvinceRolesView.vue'), meta: { title: '角色与权限', requiresAuth: true, roles: ['PROVINCE'] } },
+  { path: '/province/monitor', component: () => import('@/views/ProvinceMonitorView.vue'), meta: { title: '系统监控', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/integration', redirect: to => ({ path: '/province/national', query: to.query }) },
   { path: '/province/national', component: () => import('@/views/NationalReportView.vue'), meta: { title: '国家上报 · 模拟接口', requiresAuth: true, roles: ['PROVINCE'] } },
   { path: '/403', component: () => import('@/views/ForbiddenView.vue'), meta: { title: '无权限' } },
@@ -102,12 +73,14 @@ export const router = createRouter({ history: createWebHistory(), routes })
 router.beforeEach((to) => {
   const auth = useAuthStore()
   const role = auth.user?.roleCode
-  if (to.path === '/login' && auth.isAuthenticated && role) return roleHomePaths[role]
+  if (to.path === '/login' && auth.isAuthenticated && role) return landingPath(role, auth.can)
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
-  if (to.path === '/home' && role) return roleHomePaths[role]
+  if (to.path === '/home' && role) return landingPath(role, auth.can)
   if (!canAccess(to.meta.roles, role)) return '/403'
+  const permission = pagePermissions[to.matched.at(-1)?.path ?? to.path]
+  if (permission && !auth.can(permission)) return '/403'
   document.title = `${to.meta.title || '工作台'} - 云南省企业就业失业数据采集系统`
   return true
 })

@@ -12,6 +12,7 @@ import type { BatchDetailV2, BatchStatusV2, BatchSummaryV2, ReadinessV2 } from '
 
 const route = useRoute()
 const auth = useAuthStore()
+const can = (action: string) => auth.can('PROVINCE.NATIONAL.' + action)
 const token = () => auth.token!
 const periods = ref<SurveyPeriod[]>([])
 const periodCode = ref('')
@@ -62,7 +63,7 @@ const detailBusy = ref(false)
 const detailError = ref('')
 const retrying = ref(false)
 const pollPaused = ref(false)
-const canRetry = computed(() => batch.value?.payloadFormat === 'XML' && ['QUEUED', 'SEND_FAILED'].includes(batch.value.status))
+const canRetry = computed(() => can('RETRY') && batch.value?.payloadFormat === 'XML' && ['QUEUED', 'SEND_FAILED'].includes(batch.value.status))
 let controller: AbortController | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
 let polls = 0
@@ -84,6 +85,7 @@ async function loadReadiness(code: string) {
 }
 async function loadPeriods() {
   if (loadingPeriods.value || acting.value) return
+  if (!auth.can('PROVINCE.PERIOD.READ')) { await loadReadiness(periodCode.value); return }
   loadingPeriods.value = true
   periodError.value = ''
   try {
@@ -176,6 +178,7 @@ async function applyAction() {
   if (!data || !selected || acting.value || data.period.periodCode !== periodCode.value) return
   if (selected === 'generate' && !canGenerate.value || selected === 'revoke' && (data.existingBatch || !data.proxyItems.length)
     || selected === 'freeze' && (!data.canSubmit || data.existingBatch)) return
+  if (!can({ generate: 'PROXY_CREATE', revoke: 'PROXY_DELETE', freeze: 'BATCH_CREATE' }[selected])) return
   const code = data.period.periodCode
   acting.value = true
   actionError.value = actionMessage.value = ''
@@ -229,12 +232,13 @@ onBeforeUnmount(() => { disposed = true; stopPoll() })
       <el-alert v-if="periodError" :title="periodError" type="error" :closable="false" />
       <el-form inline :disabled="loadingPeriods || acting" @submit.prevent="pickPeriod">
         <el-form-item label="调查期">
-          <el-select v-model="periodCode" filterable style="width: min(290px, 64vw)" @change="pickPeriod">
+          <el-select v-if="auth.can('PROVINCE.PERIOD.READ')" v-model="periodCode" filterable style="width: min(290px, 64vw)" @change="pickPeriod">
             <el-option v-for="period in periods" :key="period.code" :value="period.code" :label="period.label" />
           </el-select>
+          <el-input v-else v-model.trim="periodCode" maxlength="32" placeholder="输入调查期代码" />
         </el-form-item>
         <el-button native-type="submit" :disabled="!periodCode || loadingPreview">刷新本期门槛</el-button>
-        <el-button @click="loadPeriods">刷新调查期</el-button>
+        <el-button v-if="auth.can('PROVINCE.PERIOD.READ')" @click="loadPeriods">刷新调查期</el-button>
       </el-form>
       <el-alert v-if="previewError" :title="previewError" type="error" :closable="false" />
       <div v-loading="loadingPreview" :aria-busy="loadingPreview">
@@ -285,8 +289,8 @@ onBeforeUnmount(() => { disposed = true; stopPoll() })
           <el-table-column label="阻止原因" min-width="195"><template #default>没有可用历史真实报表</template></el-table-column>
         </el-table>
         <div class="form-actions">
-          <el-button :disabled="acting || !readiness.proxyItems.length" @click="action = 'revoke'">撤销未冻结代填</el-button>
-          <el-button type="primary" :disabled="acting || !canGenerate" @click="action = 'generate'">{{ readiness.proxyItems.length ? '重新生成代填' : '生成代填' }}</el-button>
+          <el-button v-if="can('PROXY_DELETE')" :disabled="acting || !readiness.proxyItems.length" @click="action = 'revoke'">撤销未冻结代填</el-button>
+          <el-button v-if="can('PROXY_CREATE')" type="primary" :disabled="acting || !canGenerate" @click="action = 'generate'">{{ readiness.proxyItems.length ? '重新生成代填' : '生成代填' }}</el-button>
         </div>
       </el-card>
       <el-card shadow="never" class="business-card">
@@ -305,7 +309,7 @@ onBeforeUnmount(() => { disposed = true; stopPoll() })
           <el-table-column prop="periodEmploymentCount" label="调查" width="82" align="right" />
           <el-table-column prop="netChange" label="净变化" width="85" align="right" />
         </el-table>
-        <div class="form-actions"><el-button type="primary" :disabled="acting || !readiness.canSubmit" @click="action = 'freeze'">确认冻结并排队</el-button></div>
+        <div class="form-actions"><el-button v-if="can('BATCH_CREATE')" type="primary" :disabled="acting || !readiness.canSubmit" @click="action = 'freeze'">确认冻结并排队</el-button></div>
       </el-card>
     </template>
     <el-alert v-if="actionMessage" :title="actionMessage" type="success" show-icon :closable="false" />

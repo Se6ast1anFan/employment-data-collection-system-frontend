@@ -50,6 +50,7 @@ async function refresh() {
   finally { busy.value = false }
 }
 async function submit() {
+  if (!auth.can('ENTERPRISE.REPORT.SUBMIT')) return
   if (busy.value || !selected.value.length || !ready.value) return
   const items = selected.value.filter(row => row.canSubmit).map(row => ({ periodCode: row.periodCode, expectedVersion: row.currentVersion }))
   if (!items.length) return
@@ -85,7 +86,7 @@ onMounted(refresh)
         <el-table-column label="提交条件" min-width="170"><template #default="{ row }">{{ row.canSubmit ? '可选，提交时检查表单与版本' : blockedLabels[row.blockedReason as keyof typeof blockedLabels] || '当前不可选' }}</template></el-table-column>
         <el-table-column label="单份操作"><template #default="{ row }"><router-link :to="{path:'/enterprise/report/new',query:{periodCode:row.periodCode}}">打开填报</router-link></template></el-table-column>
       </el-table>
-      <div class="form-actions"><el-button type="primary" :disabled="busy || !ready || !selected.length" @click="submit">批量提交（{{ selected.length }}）</el-button></div>
+      <div class="form-actions"><el-button v-if="auth.can('ENTERPRISE.REPORT.SUBMIT')" type="primary" :disabled="busy || !ready || !selected.length" @click="submit">批量提交（{{ selected.length }}）</el-button></div>
     </el-card>
     <el-card v-if="result" class="business-card" shadow="never">
       <h2>成功 {{ result.successCount }} 条，失败 {{ result.failureCount }} 条</h2>

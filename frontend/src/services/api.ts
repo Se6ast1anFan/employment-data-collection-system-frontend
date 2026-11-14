@@ -17,6 +17,7 @@ export class ApiError extends Error {
       blockers?: { code: string; message: string }[]
       conflictMonths?: YearMonth[]
       enterpriseOrgIds?: string[]
+      historyTypes?: string[]
     },
   ) {
     super(message)
@@ -73,6 +74,7 @@ export async function request<T>(
 
   const payload: unknown = await response.json().catch(() => null)
   if (!isApiResponse<T>(payload)) {
+    dispatchAuthError(response.status)
     throw new ApiError(response.status, '服务返回格式不符合接口约定')
   }
 

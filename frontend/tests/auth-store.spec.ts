@@ -17,7 +17,7 @@ describe('登录状态', () => {
     vi.clearAllMocks()
   })
 
-  it('直接使用登录响应中的令牌和用户，不重复调用当前用户接口', async () => {
+  it('用登录令牌读取当前人的身份和权限，按接口权限控制入口', async () => {
     vi.mocked(authProvider.login).mockResolvedValue({
       code: 'OK',
       message: '',
@@ -35,11 +35,19 @@ describe('登录状态', () => {
       traceId: 'test-trace-id',
     })
 
+    const login = await authProvider.login({ username: '', password: '' })
+    vi.mocked(authProvider.me).mockResolvedValue({
+      ...login,
+      data: { user: { ...login.data.user, permissions: ['ENTERPRISE.REPORT.READ'] } },
+    })
     const store = useAuthStore()
     await store.login({ username: 'demo_enterprise', password: 'test-password' })
 
     expect(store.token).toBe('test-token')
     expect(store.user?.roleCode).toBe('ENTERPRISE')
-    expect(authProvider.me).not.toHaveBeenCalled()
+    expect(authProvider.me).toHaveBeenCalledWith('test-token')
+    expect(store.can('ENTERPRISE.REPORT.READ')).toBe(true)
+    expect(store.can('ENTERPRISE.REPORT.SUBMIT')).toBe(false)
+    expect(store.can('PROVINCE.USER.READ')).toBe(false)
   })
 })

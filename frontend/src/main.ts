@@ -19,6 +19,9 @@ window.addEventListener('auth:unauthorized', () => {
   useAuthStore(pinia).clearSession()
   router.replace('/login')
 })
-window.addEventListener('auth:forbidden', () => router.replace('/403'))
+window.addEventListener('auth:forbidden', () => {
+  void useAuthStore(pinia).refreshUser().catch(() => {})
+  void router.replace('/403')
+})
 
 app.mount('#app')

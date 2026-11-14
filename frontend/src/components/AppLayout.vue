@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Expand, Fold, Menu, SwitchButton } from '@element-plus/icons-vue'
 
-import { getMenusForRole, roleNames } from '@/config/navigation'
+import { getMenusForRole, pagePermissions, roleNames } from '@/config/navigation'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
@@ -15,7 +15,7 @@ const menuToggle = ref<HTMLButtonElement>()
 const navigation = ref<HTMLElement>()
 
 const role = computed(() => auth.user?.roleCode)
-const menus = computed(() => role.value ? getMenusForRole(role.value) : [])
+const menus = computed(() => role.value ? getMenusForRole(role.value).filter(item => auth.can(pagePermissions[item.path])) : [])
 const roleLabel = computed(() => role.value ? roleNames[role.value] : '')
 const groupLabels = {
   ENTERPRISE: ['企业备案', '调查填报', '通知'],
@@ -41,7 +41,7 @@ const groups = computed(() => {
     items: paths.flatMap(path => menus.value.filter(menu => menu.path === prefix + path)),
   }))
   const remaining = menus.value.filter(menu => !groups.some(group => group.items.includes(menu)))
-  return [{ label: '', items: remaining }, ...groups]
+  return [{ label: '', items: remaining }, ...groups].filter(group => group.items.length)
 })
 
 async function toggleMenu() {
@@ -62,6 +62,10 @@ function closeMenu(restoreFocus = false) {
 }
 
 watch(() => route.path, () => closeMenu(true))
+watch(() => auth.user, () => {
+  const permission = pagePermissions[route.matched.at(-1)?.path ?? route.path]
+  if (auth.user && permission && !auth.can(permission)) void router.replace('/403')
+})
 
 function logout() {
   auth.clearSession()

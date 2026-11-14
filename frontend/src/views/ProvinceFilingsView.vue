@@ -155,7 +155,7 @@ onMounted(() => { void Promise.all([load(), loadPeriods()]) })
       <el-form inline class="filter-form">
         <el-form-item label="所属地区"><RegionPicker v-model="filters.regionCode" /></el-form-item>
         <el-form-item v-if="filters.status === 'APPROVED'" label="调查期"><el-select v-model="filters.periodCode" clearable placeholder="全部期次" style="width:220px"><el-option v-for="item in periods" :key="item.code" :label="item.label" :value="item.code" /></el-select></el-form-item>
-        <el-form-item><el-button type="primary" @click="filters.page=0; load()">查询</el-button><el-button @click="resetFilters">清除</el-button><el-button v-if="filters.status === 'APPROVED'" :loading="exporting" @click="exportExcel">导出 Excel</el-button></el-form-item>
+        <el-form-item><el-button type="primary" @click="filters.page=0; load()">查询</el-button><el-button @click="resetFilters">清除</el-button><el-button v-if="filters.status === 'APPROVED' && auth.can('PROVINCE.DATA.EXPORT')" :loading="exporting" @click="exportExcel">导出 Excel</el-button></el-form-item>
       </el-form>
       <el-alert v-if="filters.status === 'APPROVED'" title="调查期仅用于“截至期末已备案”筛选，不表示企业参与该期报送。" type="info" :closable="false" />
       <el-table v-loading="loading" :data="data?.items" empty-text="暂无符合条件的备案记录">
@@ -188,11 +188,11 @@ onMounted(() => { void Promise.all([load(), loadPeriods()]) })
           <el-table-column prop="reason" label="退回理由" show-overflow-tooltip />
           <el-table-column label="操作" width="90"><template #default="scope"><el-button link type="primary" @click="showVersion(scope.row.version)">快照</el-button></template></el-table-column>
         </el-table>
-        <div v-if="detail?.status === 'PENDING'" class="form-actions"><el-button type="danger" plain :loading="reviewing" @click="openReturn">退回</el-button><el-button type="primary" :loading="reviewing" @click="approve">通过</el-button></div>
+        <div v-if="detail?.status === 'PENDING'" class="form-actions"><el-button v-if="auth.can('PROVINCE.FILING.RETURN')" type="danger" plain :loading="reviewing" @click="openReturn">退回</el-button><el-button v-if="auth.can('PROVINCE.FILING.APPROVE')" type="primary" :loading="reviewing" @click="approve">通过</el-button></div>
       </div>
     </el-drawer>
 
-    <el-dialog v-model="returnVisible" title="退回备案" width="min(560px, 92vw)"><el-form label-position="top"><el-form-item label="退回理由" required :error="returnError"><el-input v-model="returnReason" type="textarea" :rows="5" maxlength="500" show-word-limit /></el-form-item></el-form><template #footer><el-button @click="returnVisible=false">取消</el-button><el-button type="danger" :loading="reviewing" @click="confirmReturn">确认退回</el-button></template></el-dialog>
+    <el-dialog v-if="auth.can('PROVINCE.FILING.RETURN')" v-model="returnVisible" title="退回备案" width="min(560px, 92vw)"><el-form label-position="top"><el-form-item label="退回理由" required :error="returnError"><el-input v-model="returnReason" type="textarea" :rows="5" maxlength="500" show-word-limit /></el-form-item></el-form><template #footer><el-button @click="returnVisible=false">取消</el-button><el-button type="danger" :loading="reviewing" @click="confirmReturn">确认退回</el-button></template></el-dialog>
     <el-dialog v-model="snapshotVisible" :title="`备案历史版本 ${snapshot?.version ?? ''}`" width="min(900px, 92vw)"><ProfileSnapshot v-if="snapshot" :profile="snapshot.profile" :region="snapshot.region" /><template #footer><el-button @click="snapshotVisible=false">关闭</el-button></template></el-dialog>
   </section>
 </template>

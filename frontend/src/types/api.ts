@@ -1,5 +1,12 @@
 export type RoleCode = 'ENTERPRISE' | 'CITY' | 'PROVINCE'
 
+export interface FunctionalRole {
+  id: string
+  code: string
+  name: string
+  level: RoleCode
+}
+
 export interface ApiResponse<T> {
   code: string
   message: string
@@ -18,6 +25,8 @@ export interface CurrentUser {
   roleCode: RoleCode
   orgId: string
   orgName: string
+  functionalRoles?: FunctionalRole[]
+  permissions?: string[]
 }
 
 export interface LoginData {

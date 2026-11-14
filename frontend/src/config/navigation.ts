@@ -1,11 +1,5 @@
 import type { MenuItemConfig, RoleCode } from '@/types/api'
 
-export const roleHomePaths: Record<RoleCode, string> = {
-  ENTERPRISE: '/enterprise/home',
-  CITY: '/city/home',
-  PROVINCE: '/province/home',
-}
-
 export const roleNames: Record<RoleCode, string> = {
   ENTERPRISE: '企业用户',
   CITY: '市级用户',
@@ -40,7 +34,7 @@ export const menusByRole: Record<RoleCode, MenuItemConfig[]> = {
     { label: '企业进度查询', path: '/province/enterprise-progress' },
     { label: '通知管理', path: '/province/notices' },
     { label: '用户管理', path: '/province/users' },
-    { label: '角色管理', path: '/province/roles' },
+    { label: '角色与权限', path: '/province/roles' },
     { label: '系统监控', path: '/province/monitor' },
     { label: '国家上报', path: '/province/national' },
   ],
@@ -48,4 +42,37 @@ export const menusByRole: Record<RoleCode, MenuItemConfig[]> = {
 
 export function getMenusForRole(role: RoleCode): MenuItemConfig[] {
   return menusByRole[role]
+}
+
+export const pagePermissions: Record<string, string> = {
+  '/enterprise/home': 'ENTERPRISE.OVERVIEW.READ',
+  '/enterprise/profile': 'ENTERPRISE.FILING.READ',
+  '/enterprise/filing': 'ENTERPRISE.FILING.READ',
+  '/enterprise/report/new': 'ENTERPRISE.REPORT.READ',
+  '/enterprise/report/batch': 'ENTERPRISE.REPORT.READ',
+  '/enterprise/report/history': 'ENTERPRISE.REPORT.READ',
+  '/enterprise/notices': 'ENTERPRISE.NOTICE.READ',
+  '/city/home': 'CITY.OVERVIEW.READ',
+  '/city/reports': 'CITY.REPORT.READ',
+  '/city/notices': 'CITY.NOTICE.READ',
+  '/province/home': 'PROVINCE.OVERVIEW.READ',
+  '/province/enterprise-accounts/new': 'PROVINCE.ENTERPRISE_ACCOUNT.CREATE',
+  '/province/filings': 'PROVINCE.FILING.READ',
+  '/province/periods': 'PROVINCE.PERIOD.READ',
+  '/province/reports': 'PROVINCE.REPORT.READ',
+  '/province/summary': 'PROVINCE.DATA.READ',
+  '/province/data/reports/:reportId': 'PROVINCE.DATA.READ',
+  '/province/analysis': 'PROVINCE.ANALYSIS.READ',
+  '/province/olap': 'PROVINCE.ANALYSIS.READ',
+  '/province/accounts': 'PROVINCE.ACCOUNT.READ',
+  '/province/enterprise-progress': 'PROVINCE.OVERVIEW.READ',
+  '/province/notices': 'PROVINCE.NOTICE.READ',
+  '/province/users': 'PROVINCE.USER.READ',
+  '/province/roles': 'PROVINCE.ROLE.READ',
+  '/province/monitor': 'PROVINCE.MONITOR.READ',
+  '/province/national': 'PROVINCE.NATIONAL.READ',
+}
+
+export function landingPath(role: RoleCode, can: (permission: string) => boolean) {
+  return getMenusForRole(role).find(item => can(pagePermissions[item.path]))?.path ?? '/403'
 }

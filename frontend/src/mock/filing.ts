@@ -282,12 +282,13 @@ export const mockFilingProvider: FilingProvider = {
   },
 
   async approve(filingId, payload, token) {
-    await wait(); userFor(token, 'PROVINCE')
+    await wait(); const reviewer = userFor(token, 'PROVINCE')
     const record = getRecordByFilingId(filingId)
     if (record.status !== 'PENDING' || payload.expectedVersion !== record.currentVersion) {
       error(409, '当前状态或版本已变化，请刷新后重试', 'CONFLICT')
     }
     record.status = 'APPROVED'; record.reviewedAt = now(); record.returnReason = null
+    mockFilingReviewers.add(reviewer.id)
     const version = currentVersion(record)
     version.result = 'APPROVED'; version.reviewedAt = record.reviewedAt; version.reason = null
     record.orgName = version.profile.enterpriseName!
@@ -299,7 +300,7 @@ export const mockFilingProvider: FilingProvider = {
   },
 
   async returnFiling(filingId, payload, token) {
-    await wait(); userFor(token, 'PROVINCE')
+    await wait(); const reviewer = userFor(token, 'PROVINCE')
     const record = getRecordByFilingId(filingId)
     const reason = payload.reason.trim()
     if (!reason || reason.length > 500) error(400, '退回理由长度须为 1 至 500 字', 'BAD_REQUEST', { reason: '请输入 1 至 500 字退回理由' })
@@ -307,6 +308,7 @@ export const mockFilingProvider: FilingProvider = {
       error(409, '当前状态或版本已变化，请刷新后重试', 'CONFLICT')
     }
     record.status = 'RETURNED'; record.reviewedAt = now(); record.returnReason = reason
+    mockFilingReviewers.add(reviewer.id)
     const version = currentVersion(record)
     version.result = 'RETURNED'; version.reviewedAt = record.reviewedAt; version.reason = reason
     const data: ReviewData = {
@@ -333,4 +335,5 @@ export const mockFilingProvider: FilingProvider = {
   },
 }
 
+export const mockFilingReviewers = new Set<string>()
 export const managementMockFilings = { records, options }

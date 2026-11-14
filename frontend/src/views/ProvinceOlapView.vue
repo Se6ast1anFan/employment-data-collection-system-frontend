@@ -13,6 +13,8 @@ import {
 } from '@/utils/olap'
 
 const auth = useAuthStore()
+const canReadPeriods = computed(() => auth.can('PROVINCE.PERIOD.READ'))
+const manualPeriods = ref('')
 const route = useRoute()
 const periods = shallowRef<SurveyPeriod[]>([])
 const demoCodes = ref<string[]>([])
@@ -134,8 +136,10 @@ function inspect(row?: CubeHeader, col?: CubeHeader) {
 
 async function load() {
   if (busy.value) return
-  const wanted = new Set(selectedPeriods.value)
-  const selection = new Map(periods.value.filter(period => wanted.has(period.code)).map(period => [period.code, period.label]))
+  const wanted = new Set(canReadPeriods.value ? selectedPeriods.value : manualPeriods.value.split(/[,，\s]+/).filter(Boolean))
+  const selection = canReadPeriods.value
+    ? new Map(periods.value.filter(period => wanted.has(period.code)).map(period => [period.code, period.label]))
+    : new Map([...wanted].map(code => [code, code]))
   error.value = ''
   busy.value = true
   try {
@@ -153,6 +157,13 @@ function loadDemo() {
 
 async function initialize() {
   if (busy.value) return
+  if (!canReadPeriods.value) {
+    if (typeof route.query.periodCode === 'string') {
+      manualPeriods.value = route.query.periodCode
+      await load()
+    }
+    return
+  }
   error.value = ''
   busy.value = true
   try {
@@ -190,17 +201,18 @@ onMounted(initialize)
       <div><h2 id="olap-source-title">分析范围</h2><p>每家企业每期取最新、省审通过且未作废的报表，人数使用当前有效值。</p></div>
       <el-form class="source-form" label-position="top" @submit.prevent="load">
         <el-form-item label="调查期（可多选）">
-          <el-select-v2 v-model="selectedPeriods" :options="periods.map(period => ({ label: period.label, value: period.code }))"
+          <el-select-v2 v-if="canReadPeriods" v-model="selectedPeriods" :options="periods.map(period => ({ label: period.label, value: period.code }))"
             multiple filterable clearable collapse-tags :max-collapse-tags="2" :multiple-limit="cubePeriodLimit"
             :disabled="busy || !periods.length" placeholder="选择调查期" />
+          <el-input v-else v-model.trim="manualPeriods" placeholder="输入调查期代码，以逗号或空格分隔" />
         </el-form-item>
-        <el-button type="primary" native-type="submit" :loading="busy" :disabled="!selectedPeriods.length">载入数据</el-button>
+        <el-button type="primary" native-type="submit" :loading="busy" :disabled="canReadPeriods ? !selectedPeriods.length : !manualPeriods">载入数据</el-button>
       </el-form>
       <div v-if="snapshot || demoCodes.length" class="source-status">
         <p v-if="snapshot" role="status">已载入 {{ loadedPeriods.size }} 期、{{ number.format(facts.length) }} 条报表<span v-if="pending">。期次选择有变动，点击「载入数据」应用。</span></p>
         <el-button v-if="demoCodes.length && (!mockSnapshot || pending)" link type="primary" :disabled="busy" @click="loadDemo">载入演示样本</el-button>
       </div>
-      <p v-else-if="!busy && !periods.length && !error" class="source-status">暂无可分析调查期。<el-button link type="primary" @click="initialize">重新读取调查期</el-button></p>
+      <p v-else-if="canReadPeriods && !busy && !periods.length && !error" class="source-status">暂无可分析调查期。<el-button link type="primary" @click="initialize">重新读取调查期</el-button></p>
       <div v-if="error" class="source-error">
         <el-alert :title="error" type="error" show-icon :closable="false" />
         <el-button v-if="!periods.length" :disabled="busy" @click="initialize">重新读取调查期</el-button>
@@ -300,7 +312,7 @@ onMounted(initialize)
         <el-table-column label="净变化" prop="netChange" width="85" align="right" />
         <el-table-column label="人员变动" width="100"><template #default="{ row }">{{ directionLabels[row.changeDirection as keyof typeof directionLabels] }}</template></el-table-column>
         <el-table-column label="建档来源期" min-width="120"><template #default="{ row }">{{ row.baselineSourcePeriodCode ?? '—' }}</template></el-table-column>
-        <el-table-column label="报表" width="95"><template #default="{ row }"><router-link v-if="!demoCodes.includes(row.periodCode)" :to="'/province/data/reports/' + encodeURIComponent(row.reportId)">追溯报表</router-link><span v-else>演示</span></template></el-table-column>
+        <el-table-column label="报表" width="95"><template #default="{ row }"><router-link v-if="!demoCodes.includes(row.periodCode) && auth.can('PROVINCE.DATA.READ')" :to="'/province/data/reports/' + encodeURIComponent(row.reportId)">追溯报表</router-link><span v-else>{{ demoCodes.includes(row.periodCode) ? '演示' : '—' }}</span></template></el-table-column>
       </el-table>
       <el-pagination v-if="(detail?.facts.length ?? 0) > detailSize" v-model:current-page="detailPage" :total="detail?.facts.length" :page-size="detailSize" layout="total, prev, pager, next" />
     </el-dialog>

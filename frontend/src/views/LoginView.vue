@@ -3,7 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
-import { roleHomePaths } from '@/config/navigation'
+import { landingPath } from '@/config/navigation'
 import { mockAccounts } from '@/mock/auth'
 import { canAccess } from '@/router/access'
 import { ApiError } from '@/services/api'
@@ -44,7 +44,7 @@ async function submit() {
     const destination =
       requestedRoute && canAccess(requestedRoute.meta.roles, role)
         ? requested
-        : roleHomePaths[role]
+        : landingPath(role, auth.can)
     await router.replace(destination)
     ElMessage.success('登录成功')
   } catch (error) {

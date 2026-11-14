@@ -55,8 +55,8 @@ function reportOnly(status: ReportProgressFilter) {
 onMounted(async () => {
   busy.value = true
   try {
-    periods.value = orderedPeriods((await reportProvider.periods(auth.token!)).data.items.filter(p => !p.legacy))
-    if (!periods.value.some(p => p.code === periodCode.value)) periodCode.value = periods.value.at(-1)?.code ?? ''
+    if (auth.can('PROVINCE.PERIOD.READ')) periods.value = orderedPeriods((await reportProvider.periods(auth.token!)).data.items.filter(p => !p.legacy))
+    if (auth.can('PROVINCE.PERIOD.READ') && !periods.value.some(p => p.code === periodCode.value)) periodCode.value = periods.value.at(-1)?.code ?? ''
   } catch (e) { error.value = (e as Error).message }
   finally { busy.value = false }
   if (periodCode.value && !error.value) await query()
@@ -69,7 +69,7 @@ onMounted(async () => {
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-card shadow="never" v-loading="busy">
       <el-form inline :disabled="busy" @submit.prevent="query()">
-        <el-form-item label="调查期"><el-select v-model="periodCode" style="width:230px" @change="query()"><el-option v-for="p in periods" :key="p.code" :label="p.label" :value="p.code" /></el-select></el-form-item>
+        <el-form-item label="调查期"><el-select v-if="auth.can('PROVINCE.PERIOD.READ')" v-model="periodCode" style="width:230px" @change="query()"><el-option v-for="p in periods" :key="p.code" :label="p.label" :value="p.code" /></el-select><el-input v-else v-model="periodCode" maxlength="32" placeholder="输入调查期代码" /></el-form-item>
         <el-form-item label="所属市"><RegionPicker v-model="cityCode" any-level :select-level="2" /></el-form-item>
         <el-form-item label="备案情况"><el-select v-model="filingStatus" clearable style="width:140px"><el-option v-for="(label,key) in filingProgressLabels" :key="key" :label="label" :value="key" /></el-select></el-form-item>
         <el-form-item label="本期上报情况"><el-select v-model="reportStatus" clearable style="width:150px"><el-option v-for="(label,key) in reportFilterLabels" :key="key" :label="label" :value="key" /></el-select></el-form-item>

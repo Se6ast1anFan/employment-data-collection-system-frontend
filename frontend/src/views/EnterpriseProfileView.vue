@@ -18,6 +18,8 @@ const options = ref<FilingOptionsData | null>(null)
 const profileData = ref<EnterpriseProfileData | null>(null)
 const form = reactive<EnterpriseProfileFields>(emptyProfile())
 const fieldErrors = reactive<Record<string, string>>({})
+const canSave = computed(() => auth.can('ENTERPRISE.FILING.DRAFT_SAVE'))
+const canSubmit = computed(() => auth.can('ENTERPRISE.FILING.SUBMIT'))
 const editable = computed(() => profileData.value?.editable ?? false)
 const statusText = computed(() => profileData.value?.status ? filingStatusLabels[profileData.value.status] : '尚未填写')
 
@@ -58,6 +60,7 @@ function handleError(error: unknown, fallback: string) {
 }
 
 async function saveDraft(showSuccess = true): Promise<EnterpriseProfileData | null> {
+  if (!canSave.value) return null
   const normalized = normalizeProfile(form)
   const errors = validateProfile(normalized, false)
   setErrors(errors)
@@ -75,6 +78,7 @@ async function saveDraft(showSuccess = true): Promise<EnterpriseProfileData | nu
 }
 
 async function submitFiling() {
+  if (!canSubmit.value || (!canSave.value && !profileData.value?.currentVersion)) return
   const normalized = normalizeProfile(form)
   const errors = validateProfile(normalized, true)
   setErrors(errors)
@@ -83,11 +87,11 @@ async function submitFiling() {
     return
   }
   try {
-    await ElMessageBox.confirm('提交后资料将进入待省级备案状态，审核完成前不能修改。确认提交吗？', '提交备案', { type: 'warning' })
+    await ElMessageBox.confirm('提交后资料将进入待省级备案状态，审核完成前不能修改。确认提交已保存的备案资料吗？', '提交备案', { type: 'warning' })
   } catch { return }
   submitting.value = true
   try {
-    const saved = await saveDraft(false)
+    const saved = canSave.value ? await saveDraft(false) : profileData.value
     if (!saved) return
     await filingProvider.submit({ expectedVersion: saved.currentVersion }, auth.token!)
     ElMessage.success('备案已提交省级审核')
@@ -114,7 +118,7 @@ onMounted(load)
     <el-alert v-if="options?.demo" title="当前下拉选项为匿名演示字典，不代表正式云南编码。" type="warning" :closable="false" show-icon />
     <el-alert v-if="profileData && !editable" title="当前备案状态下资料只读；状态变化后请刷新页面。" type="info" :closable="false" show-icon />
     <el-card shadow="never" class="business-card">
-      <el-form label-position="top" :disabled="!editable">
+      <el-form label-position="top" :disabled="!editable || !canSave">
         <el-row :gutter="18">
           <el-col :span="24"><el-form-item label="所属地区（不可修改）"><el-input :model-value="formatRegion(profileData?.region)" disabled /></el-form-item></el-col>
           <el-col :xs="24" :md="12"><el-form-item label="组织机构代码" required :error="fieldErrors.organizationCode"><el-input v-model="form.organizationCode" maxlength="9" @blur="form.organizationCode = form.organizationCode?.trim().toUpperCase() || null" /></el-form-item></el-col>
@@ -132,7 +136,7 @@ onMounted(load)
           <el-col :xs="24" :md="8"><el-form-item label="传真" required :error="fieldErrors.fax"><el-input v-model="form.fax" placeholder="区号-电话号码" /></el-form-item></el-col>
           <el-col :xs="24" :md="8"><el-form-item label="EMAIL（选填）" :error="fieldErrors.email"><el-input v-model="form.email" /></el-form-item></el-col>
         </el-row>
-        <div class="form-actions"><span v-if="profileData?.updatedAt" class="muted">最近保存：{{ formatBeijingTime(profileData.updatedAt) }}</span><el-button :loading="saving" :disabled="!editable" @click="saveDraft()">保存草稿</el-button><el-button type="primary" :loading="submitting" :disabled="!editable" @click="submitFiling">提交备案</el-button></div>
+        <div class="form-actions"><span v-if="profileData?.updatedAt" class="muted">最近保存：{{ formatBeijingTime(profileData.updatedAt) }}</span><el-button v-if="canSave" :loading="saving" :disabled="!editable" @click="saveDraft()">保存草稿</el-button><el-button v-if="canSubmit" type="primary" :loading="submitting" :disabled="!editable || (!canSave && !profileData?.currentVersion)" @click="submitFiling">提交备案</el-button></div>
       </el-form>
     </el-card>
   </section>

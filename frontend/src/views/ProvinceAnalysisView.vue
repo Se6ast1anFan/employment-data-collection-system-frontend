@@ -14,6 +14,7 @@ import CityShareChart from '@/components/CityShareChart.vue'
 import MetricsTable from '@/components/MetricsTable.vue'
 
 const auth = useAuthStore()
+const canReadPeriods = computed(() => auth.can('PROVINCE.PERIOD.READ'))
 const route = useRoute()
 const modes = { cities: '各市数量与占比', compare: '两期六项对比', trend: '连续多期趋势' } as const
 const mode = ref<keyof typeof modes>('cities')
@@ -85,6 +86,7 @@ function filterText(value: Partial<AnalysisFilters>) {
 }
 
 async function loadPeriods() {
+  if (!canReadPeriods.value) return
   busy.value = true
   error.value = ''
   try {
@@ -162,7 +164,7 @@ watch(grain, value => {
 watch([mode, grain, method, periodCode, first, second, start, end, filters], clearResults, { deep: true, flush: 'sync' })
 onMounted(async () => {
   await loadPeriods()
-  if (typeof route.query.periodCode === 'string' && periods.value.some(period => period.code === route.query.periodCode)) {
+  if (typeof route.query.periodCode === 'string' && (!canReadPeriods.value || periods.value.some(period => period.code === route.query.periodCode))) {
     periodCode.value = route.query.periodCode
     await query()
   } else if (demo.value) previewDemo()
@@ -175,17 +177,18 @@ onMounted(async () => {
       <div><h1>就业数据分析</h1><p>分析本省已省审通过、未作废的最新提交版本，使用当前有效修订值。</p></div>
       <div class="heading-actions">
         <el-button v-if="demo" :disabled="busy" @click="previewDemo">载入演示样本</el-button>
-        <el-button :disabled="busy" @click="loadPeriods">刷新调查期</el-button>
+        <el-button v-if="canReadPeriods" :disabled="busy" @click="loadPeriods">刷新调查期</el-button>
       </div>
     </div>
+    <p v-if="!canReadPeriods" class="muted">可按调查期代码查询。连续趋势和日历周期对比需要调查期查看权限。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <ul v-if="Object.keys(fieldErrors).length" role="alert"><li v-for="(message, key) in fieldErrors" :key="key">{{ message }}</li></ul>
     <div class="analysis-tabs" role="group" aria-label="分析方式">
-      <el-button v-for="(label, key) in modes" :key="key" :type="mode === key ? 'primary' : 'default'" :aria-pressed="mode === key" :disabled="busy" @click="mode = key">{{ label }}</el-button>
+      <el-button v-for="(label, key) in modes" v-show="canReadPeriods || key !== 'trend'" :key="key" :type="mode === key ? 'primary' : 'default'" :aria-pressed="mode === key" :disabled="busy" @click="mode = key">{{ label }}</el-button>
     </div>
     <el-card shadow="never" v-loading="busy">
       <el-form label-position="top" :disabled="busy" @submit.prevent="query">
-        <div v-if="mode === 'compare'" class="comparison-controls">
+        <div v-if="mode === 'compare' && canReadPeriods" class="comparison-controls">
           <el-form-item label="比较粒度" class="comparison-grain">
             <el-radio-group v-model="grain" aria-label="比较粒度">
               <el-radio-button v-for="(label, key) in comparisonGrains" :key="key" :value="key">{{ label }}</el-radio-button>
@@ -201,7 +204,7 @@ onMounted(async () => {
         </div>
         <div class="analysis-filters">
           <el-form-item v-if="mode === 'cities'" label="调查期">
-            <el-select v-model="periodCode" placeholder="选择调查期"><el-option v-for="period in periods" :key="period.code" :label="period.label" :value="period.code" /></el-select>
+            <el-select v-if="canReadPeriods" v-model="periodCode" placeholder="选择调查期"><el-option v-for="period in periods" :key="period.code" :label="period.label" :value="period.code" /></el-select><el-input v-else v-model.trim="periodCode" maxlength="32" placeholder="输入调查期代码" />
           </el-form-item>
           <template v-if="mode === 'compare' && automatic">
             <el-form-item label="本期">
@@ -213,10 +216,10 @@ onMounted(async () => {
           </template>
           <template v-else-if="mode === 'compare'">
             <el-form-item :label="grain === 'period' ? '第一调查期' : '比较范围 A'">
-              <el-select v-model="first" :placeholder="`选择${comparisonGrains[grain]}`"><el-option v-for="item in compareOptions" :key="item.code" :value="item.code" :label="item.label" :disabled="item.code === second" /></el-select>
+              <el-select v-if="canReadPeriods" v-model="first" :placeholder="`选择${comparisonGrains[grain]}`"><el-option v-for="item in compareOptions" :key="item.code" :value="item.code" :label="item.label" :disabled="item.code === second" /></el-select><el-input v-else v-model.trim="first" maxlength="32" placeholder="输入调查期代码" />
             </el-form-item>
             <el-form-item :label="grain === 'period' ? '第二调查期' : '比较范围 B'">
-              <el-select v-model="second" :placeholder="`选择${comparisonGrains[grain]}`"><el-option v-for="item in compareOptions" :key="item.code" :value="item.code" :label="item.label" :disabled="item.code === first" /></el-select>
+              <el-select v-if="canReadPeriods" v-model="second" :placeholder="`选择${comparisonGrains[grain]}`"><el-option v-for="item in compareOptions" :key="item.code" :value="item.code" :label="item.label" :disabled="item.code === first" /></el-select><el-input v-else v-model.trim="second" maxlength="32" placeholder="输入调查期代码" />
             </el-form-item>
           </template>
           <template v-if="mode === 'trend'">
